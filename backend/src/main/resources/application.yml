@@ -29,3 +29,10 @@ app:
   cors:
     # Origins of the React app (comma-separated). Override in production: export CORS_ORIGINS=https://chat.example.com
     allowed-origins: ${CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000}
+
+  rabbitmq:
+    enabled: true
+    host: localhost
+    stomp-port: 61613
+    username: admin
+    password: admin123

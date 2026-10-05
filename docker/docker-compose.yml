@@ -1,0 +1,24 @@
+name: realtime-chat   # unique project name -> own volumes, no clash with other "docker/" folders
+
+services:
+  rabbitmq_test:
+    image: rabbitmq:4.3.6-management
+    container_name: rabbitmq_test
+    hostname: rabbitmq
+    restart: unless-stopped
+
+    ports:
+      - "5772:5672"      # AMQP (not used by this app, keep if you need it)
+      - "15772:15672"    # management UI
+      - "61613:61613"    # STOMP  <-- new, this is what Spring Boot connects to
+
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
+
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./enabled_plugins:/etc/rabbitmq/enabled_plugins   # <-- new, turns on STOMP
+
+volumes:
+  rabbitmq_data:
