@@ -1,0 +1,52 @@
+package com.example.chat.message;
+
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
+import org.springframework.messaging.handler.annotation.MessageMapping;
+import org.springframework.messaging.handler.annotation.Payload;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.messaging.simp.annotation.SendToUser;
+import org.springframework.stereotype.Controller;
+
+import java.security.Principal;
+import java.util.Map;
+
+/**
+ * WebSocket (STOMP) endpoints.
+ */
+@Controller
+@RequiredArgsConstructor
+@Slf4j
+public class ChatController {
+
+    private final MessageService messages;
+    private final SimpMessagingTemplate template;
+
+    /**
+     * Client publishes to /app/chat.send with body {"to":"bob","content":"hi"}
+     */
+    @MessageMapping("/chat.send")
+    public void send(@Valid @Payload SendMessageRequest req, Principal principal) {
+        // The sender always comes from the authenticated principal, never from the payload.
+        ChatMessageDto saved = messages.save(principal.getName(), req);
+
+        // 1) Push to the receiver. If they have no open session this is a no-op;
+        //    they'll see the message in history on their next login.
+        template.convertAndSendToUser(saved.receiver(), "/queue/messages", saved);
+
+        // 2) Echo to the sender (confirmation + keeps their other tabs/devices in sync).
+        template.convertAndSendToUser(saved.sender(), "/queue/messages", saved);
+    }
+
+    @MessageExceptionHandler
+    @SendToUser("/queue/errors")
+    public Map<String, String> handleError(Exception e) {
+        if (e instanceof IllegalArgumentException) {
+            return Map.of("error", e.getMessage());
+        }
+        log.warn("Error handling chat message", e);
+        return Map.of("error", "Invalid message");
+    }
+}
