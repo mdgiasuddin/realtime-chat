@@ -3,7 +3,7 @@
 ```
 realtime-chat/
 ├── backend/    Spring Boot 3 (REST + STOMP WebSocket + JWT + JPA)
-└── frontend/   React 18 + Vite (@stomp/stompjs)
+└── frontend/   React 19 + TypeScript + Vite (@stomp/stompjs)
 ```
 
 ## Run in development
@@ -52,14 +52,26 @@ Alternative: serve `dist` and proxy `/api` and `/ws` (with WebSocket upgrade) fr
 
 ```
 frontend/src
-├── main.jsx                  entry, wraps <App/> in <AuthProvider>
-├── App.jsx                   login page or chat page depending on auth state
-├── api.js                    fetch wrapper (JWT header, error handling) + WebSocket URL
-├── context/AuthContext.jsx   login / register / logout, token in sessionStorage, authenticated api()
-├── hooks/useChatSocket.js    STOMP connection with JWT, subscribe, send, auto-reconnect
+├── main.tsx                      entry, wraps <App/> in <AuthProvider>
+├── App.tsx                       login page or chat page depending on auth state
+├── types/api.ts                  request/response types mirroring the backend DTOs
+├── api/
+│   ├── client.ts                 fetch wrapper (JWT header, ApiError) + WebSocket URL
+│   └── endpoints.ts              typed endpoints: authApi + createChatApi(token-bound request)
+├── context/
+│   ├── AuthContext.ts            context + AuthContextValue type
+│   └── AuthProvider.tsx          login / register / logout, token in sessionStorage, chatApi
+├── hooks/
+│   ├── useAuth.ts                reads AuthContext
+│   ├── useChat.ts                conversations, unread counts, active chat, messages
+│   ├── useChatSocket.ts          STOMP connection with JWT, subscribe, send, auto-reconnect
+│   ├── useUserSearch.ts          debounced, abortable user search
+│   └── useToast.ts               auto-dismissing notification
+├── utils/                        cx(), formatTime(), getErrorMessage()
 └── components/
-    ├── AuthPage.jsx          login + register forms
-    ├── ChatPage.jsx          state: conversations, unread, active chat, messages, toast
-    ├── Sidebar.jsx           debounced user search + conversation list
-    └── ChatWindow.jsx        message bubbles + input
+    ├── auth/                     AuthPage (tabs) + LoginForm + RegisterForm
+    └── chat/                     ChatPage, ChatHeader, Sidebar (UserSearch + ConversationList),
+                                  ChatWindow (MessageBubble + MessageComposer), Toast
 ```
+
+`npm run typecheck` runs the TypeScript compiler; `npm run build` type-checks before bundling.
