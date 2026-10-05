@@ -50,6 +50,8 @@ Alternative: serve `dist` and proxy `/api` and `/ws` (with WebSocket upgrade) fr
 
 ## Frontend structure
 
+See [`frontend/README.md`](frontend/README.md) for a description of each component and the data flow between them.
+
 ```
 frontend/src
 ├── main.tsx                      entry, wraps <App/> in <AuthProvider>

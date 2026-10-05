@@ -1,4 +1,4 @@
-import {type FormEvent, useState} from 'react';
+import {type SubmitEvent, useState} from 'react';
 
 // Matches @Size(max = 2000) on SendMessageRequest.content in the backend.
 const MAX_MESSAGE_LENGTH = 2000;
@@ -13,7 +13,7 @@ export default function MessageComposer({disabled, onSend}: MessageComposerProps
     const [text, setText] = useState('');
     const content = text.trim();
 
-    const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+    const handleSubmit = (e: SubmitEvent<HTMLFormElement>) => {
         e.preventDefault();
         if (content && onSend(content)) setText('');
     };

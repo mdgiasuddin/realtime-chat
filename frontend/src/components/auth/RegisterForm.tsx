@@ -1,4 +1,4 @@
-import {type ChangeEvent, type FormEvent, useState} from 'react';
+import {type ChangeEvent, type SubmitEvent, useState} from 'react';
 import type {RegisterRequest} from '../../types/api';
 
 /** Every field is a plain string while editing; optional ones become null on submit. */
@@ -30,7 +30,7 @@ export default function RegisterForm({busy, onSubmit}: RegisterFormProps) {
     const update = (field: keyof RegisterFormState) => (e: ChangeEvent<HTMLInputElement>) =>
         setForm((prev) => ({...prev, [field]: e.target.value}));
 
-    const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+    const handleSubmit = (e: SubmitEvent<HTMLFormElement>) => {
         e.preventDefault();
         onSubmit(toRegisterRequest(form));
     };

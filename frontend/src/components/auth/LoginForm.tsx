@@ -1,4 +1,4 @@
-import {type ChangeEvent, type FormEvent, useState} from 'react';
+import {type ChangeEvent, type SubmitEvent, useState} from 'react';
 import type {LoginRequest} from '../../types/api';
 
 interface LoginFormProps {
@@ -12,7 +12,7 @@ export default function LoginForm({busy, onSubmit}: LoginFormProps) {
     const update = (field: keyof LoginRequest) => (e: ChangeEvent<HTMLInputElement>) =>
         setForm((prev) => ({...prev, [field]: e.target.value}));
 
-    const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+    const handleSubmit = (e: SubmitEvent<HTMLFormElement>) => {
         e.preventDefault();
         onSubmit({username: form.username.trim(), password: form.password});
     };
