@@ -5,8 +5,6 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.IdClass;
-import jakarta.persistence.Index;
-import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -16,9 +14,6 @@ import java.time.Instant;
 import static jakarta.persistence.EnumType.STRING;
 
 @Entity
-@Table(name = "group_members", indexes = {
-        @Index(name = "idx_group_members_username", columnList = "username")
-})
 @IdClass(GroupMemberId.class)
 @Getter
 @Setter
