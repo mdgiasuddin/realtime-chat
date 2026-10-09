@@ -11,6 +11,8 @@ import lombok.Setter;
 
 import java.time.Instant;
 
+import static com.example.chat.group.GroupRole.ADMIN;
+import static com.example.chat.group.GroupRole.MEMBER;
 import static jakarta.persistence.EnumType.STRING;
 
 @Entity
@@ -29,7 +31,7 @@ public class GroupMember {
 
     @Enumerated(STRING)
     @Column(nullable = false, length = 10)
-    private GroupRole role = GroupRole.MEMBER;
+    private GroupRole role = MEMBER;
 
     @Column(nullable = false)
     private Instant joinedAt = Instant.now();
@@ -41,6 +43,6 @@ public class GroupMember {
     }
 
     public boolean isAdmin() {
-        return role == GroupRole.ADMIN;
+        return role == ADMIN;
     }
 }

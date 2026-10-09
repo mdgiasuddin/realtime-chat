@@ -7,7 +7,5 @@ package com.example.chat.group;
  * @param actor  username of whoever made the change
  * @param target username the change was about (MEMBER_REMOVED, ROLE_CHANGED), otherwise null
  */
-public record GroupEvent(Type type, GroupDto group, String actor, String target) {
-
-    public enum Type {CREATED, MEMBER_ADDED, MEMBER_LEFT, MEMBER_REMOVED, ROLE_CHANGED, RENAMED, DELETED}
+public record GroupEvent(GroupEventType type, GroupDto group, String actor, String target) {
 }

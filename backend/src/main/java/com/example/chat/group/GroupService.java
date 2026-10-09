@@ -19,13 +19,13 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import static com.example.chat.group.GroupEvent.Type.CREATED;
-import static com.example.chat.group.GroupEvent.Type.DELETED;
-import static com.example.chat.group.GroupEvent.Type.MEMBER_ADDED;
-import static com.example.chat.group.GroupEvent.Type.MEMBER_LEFT;
-import static com.example.chat.group.GroupEvent.Type.MEMBER_REMOVED;
-import static com.example.chat.group.GroupEvent.Type.RENAMED;
-import static com.example.chat.group.GroupEvent.Type.ROLE_CHANGED;
+import static com.example.chat.group.GroupEventType.CREATED;
+import static com.example.chat.group.GroupEventType.DELETED;
+import static com.example.chat.group.GroupEventType.MEMBER_ADDED;
+import static com.example.chat.group.GroupEventType.MEMBER_LEFT;
+import static com.example.chat.group.GroupEventType.MEMBER_REMOVED;
+import static com.example.chat.group.GroupEventType.RENAMED;
+import static com.example.chat.group.GroupEventType.ROLE_CHANGED;
 import static com.example.chat.group.GroupRole.ADMIN;
 import static com.example.chat.group.GroupRole.MEMBER;
 import static java.util.Locale.ROOT;
@@ -42,7 +42,7 @@ public class GroupService {
     private final ChatGroupRepository groupRepository;
     private final GroupMemberRepository memberRepository;
     private final UserRepository userRepository;
-    private final SimpMessagingTemplate template;
+    private final SimpMessagingTemplate messagingTemplate;
 
     /**
      * Creates a group; the creator becomes its admin.
@@ -277,7 +277,7 @@ public class GroupService {
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
-                recipients.forEach(username -> template.convertAndSendToUser(username, "/queue/groups", event));
+                recipients.forEach(username -> messagingTemplate.convertAndSendToUser(username, "/queue/groups", event));
             }
         });
     }
