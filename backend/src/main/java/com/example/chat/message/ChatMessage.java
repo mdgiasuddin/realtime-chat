@@ -17,7 +17,8 @@ import static jakarta.persistence.GenerationType.IDENTITY;
 @Entity
 @Table(name = "chat_messages", indexes = {
         @Index(name = "idx_msg_sender_receiver", columnList = "sender,receiver,sent_at"),
-        @Index(name = "idx_msg_receiver", columnList = "receiver,sent_at")
+        @Index(name = "idx_msg_receiver", columnList = "receiver,sent_at"),
+        @Index(name = "idx_msg_group", columnList = "group_id,sent_at")
 })
 @Getter
 @Setter
@@ -31,8 +32,13 @@ public class ChatMessage {
     @Column(nullable = false, length = 50)
     private String sender;      // username
 
-    @Column(nullable = false, length = 50)
-    private String receiver;    // username
+    /**
+     * Exactly one of receiver / groupId is set.
+     */
+    @Column(length = 50)
+    private String receiver;    // username, for direct messages
+
+    private Long groupId;       // for group messages
 
     @Column(nullable = false, length = 2000)
     private String content;

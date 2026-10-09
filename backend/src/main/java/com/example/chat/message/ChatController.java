@@ -1,5 +1,7 @@
 package com.example.chat.message;
 
+import com.example.chat.common.ForbiddenException;
+import com.example.chat.group.GroupService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,15 +24,25 @@ import java.util.Map;
 public class ChatController {
 
     private final MessageService messages;
+    private final GroupService groups;
     private final SimpMessagingTemplate template;
 
     /**
-     * Client publishes to /app/chat.send with body {"to":"bob","content":"hi"}
+     * Client publishes to /app/chat.send with body {"to":"bob","content":"hi"} (direct)
+     * or {"groupId":12,"content":"hi"} (group).
      */
     @MessageMapping("/chat.send")
     public void send(@Valid @Payload SendMessageRequest req, Principal principal) {
         // The sender always comes from the authenticated principal, never from the payload.
         ChatMessageDto saved = messages.save(principal.getName(), req);
+
+        if (saved.groupId() != null) {
+            // Fan out to every member's personal queue (the sender included, as an echo).
+            for (String member : groups.memberUsernames(saved.groupId())) {
+                template.convertAndSendToUser(member, "/queue/messages", saved);
+            }
+            return;
+        }
 
         // 1) Push to the receiver. If they have no open session this is a no-op;
         //    they'll see the message in history on their next login.
@@ -43,7 +55,7 @@ public class ChatController {
     @MessageExceptionHandler
     @SendToUser("/queue/errors")
     public Map<String, String> handleError(Exception e) {
-        if (e instanceof IllegalArgumentException) {
+        if (e instanceof IllegalArgumentException || e instanceof ForbiddenException) {
             return Map.of("error", e.getMessage());
         }
         log.warn("Error handling chat message", e);

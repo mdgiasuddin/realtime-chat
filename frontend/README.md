@@ -4,6 +4,9 @@ Features
 
 - Login / register against the Spring Boot API; the JWT is kept in `sessionStorage` (per tab)
 - Debounced user search, conversation list with unread badges
+- Group chats: create a group, add members, leave; sender names in group bubbles
+- Group admins: rename, delete, remove members, promote / demote admins
+- After a reconnect, the conversation list and the open chat are refetched, so nothing pushed meanwhile is lost
 - Real-time messaging over STOMP/WebSocket with auto-reconnect
 - Paged history when a conversation is opened, merged with live messages
 - Toast notifications for new messages in other chats and for errors
@@ -68,6 +71,7 @@ src
 ├── utils/
 │   ├── classNames.ts        cx('a', cond && 'b') -> "a b"
 │   ├── errors.ts            getErrorMessage(unknown) -> string
+│   ├── conversation.ts      ChatTarget (direct | group), targetKey() -> "u:bob" / "g:12"
 │   └── format.ts            formatTime(iso) -> "14:05"
 └── components/
     ├── auth/
@@ -83,6 +87,10 @@ src
         ├── ChatWindow.tsx
         ├── MessageBubble.tsx
         ├── MessageComposer.tsx
+        ├── Modal.tsx        native <dialog>, shown on mount
+        ├── GroupDialog.tsx  create a group / add members
+        ├── GroupSettingsDialog.tsx  member list; admin: rename, roles, remove, delete
+        ├── MemberPicker.tsx user search + chips
         └── Toast.tsx
 ```
 
@@ -118,29 +126,33 @@ Two rules keep the data flow easy to follow:
     │   └── <RegisterForm busy onSubmit(registerRequest)>
     │
     └── <ChatPage user>          (user != null)  useAuth() -> chatApi, logout
-        │                                        useToast(), useChat(), useChatSocket()
+        │                                        useToast(), useChat(), useChatSocket(); dialog state
         ├── <ChatHeader user connected onLogout>
-        ├── <Sidebar chatApi conversations unread activeUser onSelect onError>
+        ├── <Sidebar chatApi conversations unread active onSelect onNewGroup onError>
         │   ├── <UserSearch chatApi onSelect onError>          useUserSearch()
-        │   └── <ConversationList conversations unread activeUser onSelect>
-        ├── <ChatWindow me activeUser messages onSend>
-        │   ├── <MessageBubble message mine>  × messages.length
+        │   └── <ConversationList conversations unread active onSelect>
+        ├── <ChatWindow me active title group messages onSend onShowMembers onAddMembers onLeave>
+        │   ├── <MessageBubble message mine showSender>  × messages.length
         │   └── <MessageComposer disabled onSend>
+        ├── <GroupDialog mode chatApi exclude onSubmit onClose onError>   (while open)
+        │   └── <MemberPicker chatApi selected exclude onChange onError>  useUserSearch()
+        ├── <GroupSettingsDialog me group onRename onSetAdmin onRemove onDelete onClose>   (while open)
         └── <Toast message>
 ```
 
 ### Who owns which state
 
-| State                                               | Owner                                            | Read by                                            |
-|-----------------------------------------------------|--------------------------------------------------|----------------------------------------------------|
-| logged-in user `{token, username, name}`            | `AuthProvider` (+ sessionStorage)                | `App` -> `ChatPage` -> `ChatHeader`, hooks         |
-| `chatApi` (endpoints bound to the token)            | `AuthProvider` (memoized on token)               | `ChatPage` -> `useChat`, `Sidebar` -> `UserSearch` |
-| `conversations`, `unread`, `activeUser`, `messages` | `useChat` (in `ChatPage`)                        | `Sidebar`, `ConversationList`, `ChatWindow`        |
-| socket `connected`                                  | `useChatSocket` (in `ChatPage`)                  | `ChatHeader` (green / red dot)                     |
-| `toast`                                             | `useToast` (in `ChatPage`)                       | `Toast`                                            |
-| active auth tab, `busy`, `error`                    | `AuthPage`                                       | `LoginForm`, `RegisterForm`                        |
-| form field values                                   | `LoginForm` / `RegisterForm` / `MessageComposer` | themselves                                         |
-| search `query` / `results`                          | `UserSearch` / `useUserSearch`                   | `UserSearch`                                       |
+| State                                                          | Owner                                            | Read by                                            |
+|----------------------------------------------------------------|--------------------------------------------------|----------------------------------------------------|
+| logged-in user `{token, username, name}`                       | `AuthProvider` (+ sessionStorage)                | `App` -> `ChatPage` -> `ChatHeader`, hooks         |
+| `chatApi` (endpoints bound to the token)                       | `AuthProvider` (memoized on token)               | `ChatPage` -> `useChat`, `Sidebar` -> `UserSearch` |
+| `conversations`, `unread`, `active`, `activeGroup`, `messages` | `useChat` (in `ChatPage`)                        | `Sidebar`, `ConversationList`, `ChatWindow`        |
+| open group dialog (`'create'` / `'add'` / `'settings'` / none) | `ChatPage`                                       | `GroupDialog`, `GroupSettingsDialog`               |
+| socket `connected`                                             | `useChatSocket` (in `ChatPage`)                  | `ChatHeader` (green / red dot)                     |
+| `toast`                                                        | `useToast` (in `ChatPage`)                       | `Toast`                                            |
+| active auth tab, `busy`, `error`                               | `AuthPage`                                       | `LoginForm`, `RegisterForm`                        |
+| form field values                                              | `LoginForm` / `RegisterForm` / `MessageComposer` | themselves                                         |
+| search `query` / `results`                                     | `UserSearch` / `useUserSearch`                   | `UserSearch`                                       |
 
 `showToast` from `useToast` is the app's single error/notification sink: it is passed as `onNotify` to `useChat`,
 `onError` to `useChatSocket` and `Sidebar` -> `UserSearch`.
@@ -157,7 +169,7 @@ main.tsx ─► AuthProvider: useState(loadStoredUser)   reads sessionStorage['c
 ```
 
 A refresh in the same tab keeps you logged in; a new tab starts logged out. The token is not validated up front: if
-it has expired, the first REST call returns 401 and triggers logout (flow 8).
+it has expired, the first REST call returns 401 and triggers logout (flow 9).
 
 ### 2. Login and register
 
@@ -189,6 +201,7 @@ useChat     effect ──► chatApi.getConversations() ──► GET /api/messa
 useChatSocket effect ──► new STOMP Client(wsUrl(), Authorization: Bearer <token>).activate()
                              onConnect ──► connected = true
                                          ├─ subscribe /user/queue/messages ──► receiveMessage (flow 6)
+                                         ├─ subscribe /user/queue/groups   ──► receiveGroupEvent (flow 7)
                                          └─ subscribe /user/queue/errors   ──► showToast(error)
 ```
 
@@ -213,63 +226,122 @@ callback the conversation list uses (flow 5).
 
 ### 5. Opening a conversation
 
-`onSelect` in both `UserSearch` and `ConversationList` is `useChat.openConversation`:
+A chat is identified by a `ChatTarget`: `{type: 'direct', username}` or `{type: 'group', groupId}`. `targetKey()`
+turns it into a string (`"u:bob"`, `"g:12"`) used for `unread`, React keys and "is this the open chat?" checks.
+`onSelect` in `ConversationList` is `useChat.openConversation`; `Sidebar` wraps `UserSearch`'s username into a direct
+target first.
 
 ```
-openConversation('bob')
-  ├─ activeRef = 'bob', activeUser = 'bob'     ChatWindow title becomes "@bob", composer enabled
-  ├─ messages = []                             old chat cleared immediately
-  ├─ unread['bob'] = 0                         badge disappears
+openConversation({type: 'direct', username: 'bob'})
+  ├─ activeRef = target, active = target       ChatWindow title becomes "@bob", composer enabled
+  ├─ messages = [], activeGroup = null         old chat cleared immediately
+  ├─ unread['u:bob'] = 0                       badge disappears
   └─ chatApi.getHistory('bob', 0, 50) ──► GET /api/messages/bob?page=0&size=50   (newest first)
          │
-         ├─ if activeRef !== 'bob' anymore ──► drop the result (user clicked another chat meanwhile)
+         ├─ if the open chat changed meanwhile ──► drop the result (user clicked another chat)
          └─ messages = mergeHistory(history reversed to oldest-first, messages that arrived live meanwhile)
 ```
 
-`activeRef` mirrors `activeUser` in a ref so that async code (this request, socket callbacks) always sees the *current*
+For a group, `getGroup(id)` (`GET /api/groups/{id}`, the member list, stored as `activeGroup`) and
+`getGroupHistory(id)` (`GET /api/groups/{id}/messages`) are loaded in parallel instead.
+
+`activeRef` mirrors `active` in a ref so that async code (these requests, socket callbacks) always sees the *current*
 chat rather than the value captured when the callback was created. `mergeHistory` deduplicates by message
 `id`, so a message that arrived over the socket during loading is not shown twice.
 
-After `messages` or `activeUser` change, `ChatWindow` scrolls to the bottom.
+After `messages` or `active` change, `ChatWindow` scrolls to the bottom.
 
 ### 6. Sending and receiving messages
 
 The server echoes every message you send back to you on `/user/queue/messages`. So both directions go through the
-same handler; the UI never adds a message optimistically.
+same handler; the UI never adds a message optimistically. Group messages are fanned out by the server to every
+member's own `/user/queue/messages`, so there is no per-group subscription.
 
 ```
 MessageComposer submit
   │ content = text.trim(); empty -> ignored
   ▼
-ChatPage.handleSend(content) ──► useChatSocket.send(activeUser, content)
+ChatPage.handleSend(content) ──► useChatSocket.send(active, content)
   │                                 │ not connected -> return false
-  │                                 └ publish /app/chat.send {to, content} -> return true
+  │                                 └ publish /app/chat.send {to, content} or {groupId, content} -> return true
   │
   ├─ true  ──► MessageComposer clears the input
   └─ false ──► showToast('Not connected, retrying…'); input keeps the text so you can resend
 
                          ─── server persists & delivers ───
 
-/user/queue/messages frame (to receiver AND sender)
+/user/queue/messages frame (to the receiver / every group member, AND the sender)
   ▼
 useChatSocket ──► useChat.receiveMessage(message)
-  │ other = the participant who isn't me
-  ├─ conversations: move/insert `other` at the top with this message as preview
-  ├─ if other is the open chat ──► append to messages (skip if id already present)
-  └─ else if I'm not the sender ──► unread[other] += 1, showToast('New message from @other')
+  │ target = message.groupId ? the group : the participant who isn't me
+  ├─ conversations: move/insert the chat at the top with this message as preview
+  │                 (a group we don't know yet ──► reload the whole list instead)
+  ├─ if target is the open chat ──► append to messages (skip if id already present)
+  └─ else if I'm not the sender ──► unread[key] += 1, showToast('New message from @sender' / '… in <group> …')
 ```
 
-Server-side errors (e.g. "Recipient not found", "You cannot message yourself") come back on `/user/queue/errors` and are
-shown as a toast.
+Server-side errors (e.g. "Recipient not found", "You are not a member of this group") come back on
+`/user/queue/errors` and are shown as a toast.
 
-### 7. Connection loss
+### 7. Groups
+
+```
+"+ New group" (Sidebar) ──► dialog = 'create' ──► <GroupDialog>: name + MemberPicker
+  └─ submit ──► useChat.createGroup(name, usernames) ──► POST /api/groups {name, members}
+                  ├─ ok    ──► add the row, open the group, close the dialog
+                  └─ error ──► toast; the dialog stays open
+
+"Add members" (ChatWindow) ──► dialog = 'add' (existing members excluded from the picker)
+  └─ submit ──► useChat.addMembers(usernames) ──► POST /api/groups/{id}/members {usernames}
+
+"Leave" (ChatWindow, after confirm()) ──► useChat.leaveGroup() ──► DELETE /api/groups/{id}/members/me
+  └─ row removed, chat closed
+
+"N members" (ChatWindow) ──► dialog = 'settings' ──► <GroupSettingsDialog>: member list, admins tagged
+  admins also get:
+  ├─ Rename              ──► useChat.renameGroup(name)         ──► PATCH  /api/groups/{id} {name}
+  ├─ Make / Remove admin ──► useChat.setAdmin(username, admin) ──► PATCH  /api/groups/{id}/members/{username} {admin}
+  ├─ Remove (confirm())  ──► useChat.removeMember(username)    ──► DELETE /api/groups/{id}/members/{username}
+  └─ Delete group (confirm()) ──► useChat.deleteGroup()        ──► DELETE /api/groups/{id}
+```
+
+Roles: the creator starts as the only admin; admins can promote or demote others, but the last admin can't be demoted.
+When the last admin leaves, the longest-standing member becomes admin. Any member can add others; the group is
+deleted when its last member leaves. The buttons are only shown to admins, but the server enforces the rules (403).
+
+The actions that return the updated group (`addMembers`, `renameGroup`, `setAdmin`, `removeMember`) go through
+`updateActiveGroup`, which applies it to `activeGroup` and the conversation row, so the open dialog updates in place.
+
+Every change is also pushed to the affected users on `/user/queue/groups` as a `GroupEvent`: `CREATED`,
+`MEMBER_ADDED`, `MEMBER_LEFT`, `MEMBER_REMOVED`, `ROLE_CHANGED`, `RENAMED` or `DELETED`, with the group after the
+change, the `actor`, and the `target` user for removals and role changes. `receiveGroupEvent`:
+
+- drops the group when it was deleted, when I was removed (`target` is me), or when I left (e.g. from another tab),
+  with a toast unless I did it myself ("@alice removed you from Team"). The settings dialog closes by itself because
+  `activeGroup` becomes `null`.
+- otherwise adds or renames the row ("@alice added you to Team" for a new one) and refreshes `activeGroup` if it's
+  the open chat.
+
+### 8. Connection loss
 
 On socket close `connected` becomes `false` (red dot in `ChatHeader`). The STOMP client retries every 5 s
-(`RECONNECT_DELAY_MS`) and re-subscribes in `onConnect`. While disconnected `send` returns `false` (flow 6). Messages
-sent to you while you were offline are not replayed over the socket; they appear when you reopen that conversation
-(history is loaded via REST).
+(`RECONNECT_DELAY_MS`) and re-subscribes in `onConnect`. While disconnected `send` returns `false` (flow 6).
 
-### 8. Errors and session expiry
+Nothing pushed while you were disconnected is replayed over the socket, so on every connect after the first one
+`useChatSocket` calls `onReconnect`, which is `useChat.resync`:
+
+```
+resync()
+  ├─ loadConversations()       GET /api/messages/conversations: new groups, removed groups, new previews
+  └─ loadChat(open chat)       history again, merged by id into what's shown (+ group details for groups)
+                                 └─ 403 for a group ──► I was removed / it was deleted meanwhile:
+                                                       drop it, toast "You are no longer a member of that group"
+```
+
+Unread counts for messages missed in *other* chats are not recovered (they're client-side only); those messages
+appear when you open the chat.
+
+### 9. Errors and session expiry
 
 ```
 any chatApi call ──► request<T>(path, {token, onUnauthorized: logout})
@@ -278,7 +350,7 @@ any chatApi call ──► request<T>(path, {token, onUnauthorized: logout})
   └─ caller catches ──► getErrorMessage(err) ──► showToast / AuthPage error line
 ```
 
-### 9. Logout
+### 10. Logout
 
 `ChatHeader` button ──► `logout()` ──► `sessionStorage` cleared, `user = null` ──► `App` renders `AuthPage` ──►
 `ChatPage` unmounts ──► `useChatSocket` cleanup calls `client.deactivate()`; the toast timer is cleared. All chat
@@ -302,7 +374,8 @@ state lived inside `ChatPage`'s hooks, so it is discarded; the next login starts
     - `wsUrl()`: the STOMP endpoint URL (see Configuration).
 - **`endpoints.ts`**: the only place that knows URL paths.
     - `authApi.login` / `authApi.register`: public endpoints.
-    - `createChatApi(authed)`: `searchUsers`, `getConversations`, `getHistory`. `authed` is a `request` with the
+  - `createChatApi(authed)`: `searchUsers`, `getConversations`, `getHistory`, and for groups `createGroup`,
+    `getGroup`, `addMembers`, `leaveGroup`, `getGroupHistory`. `authed` is a `request` with the
       token and `onUnauthorized` already filled in, so callers never deal with tokens.
     - `ChatApi` type: `ReturnType<typeof createChatApi>`, so it stays in sync automatically.
 
@@ -316,12 +389,14 @@ state lived inside `ChatPage`'s hooks, so it is discarded; the next login starts
 ### `hooks/`
 
 - **`useAuth()`**: `use(AuthContext)` with a clear error when used outside `<AuthProvider>`.
-- **`useChat({me, chatApi, onNotify})`**: chat state, see flows 3, 5, 6. Returns
-  `{conversations, unread, activeUser, messages, receiveMessage, openConversation}`. The pure helpers
-  `bumpConversation` and `mergeHistory` at the top of the file hold the list logic.
-- **`useChatSocket({token, onMessage, onError})`**: returns `{connected, send(to, content): boolean}`. The socket is
-  created once per token. `onMessage` / `onError` are wrapped in `useEffectEvent`, so passing new callbacks on
-  re-render never reconnects. STOMP destinations are in the `Destinations` constant.
+- **`useChat({me, chatApi, onNotify})`**: chat state, see flows 3, 5, 6, 7, 8. Returns
+  `{conversations, unread, active, activeGroup, messages, receiveMessage, receiveGroupEvent, resync,
+  openConversation, createGroup, addMembers, leaveGroup, renameGroup, removeMember, setAdmin, deleteGroup}`. The pure
+  helpers `bumpConversation`, `upsertGroup` and `mergeHistory` at the top of the file hold the list logic.
+- **`useChatSocket({token, onMessage, onGroupEvent, onReconnect, onError})`**: returns
+  `{connected, send(target, content): boolean}`. The socket is created once per token. The callbacks are wrapped in
+  `useEffectEvent`, so passing new callbacks on re-render never reconnects. STOMP destinations are in the `Destinations`
+  constant.
 - **`useUserSearch(query, chatApi, onError)`**: returns the matching `UserSummary[]`, see flow 4.
 - **`useToast()`**: `{toast, showToast}`; one message at a time, a new one replaces the old and restarts the
   3.5 s timer. `showToast` is stable, so it's safe in dependency arrays.
@@ -340,16 +415,29 @@ state lived inside `ChatPage`'s hooks, so it is discarded; the next login starts
 ### `components/chat/`
 
 - **`ChatPage`**: the composition root of the chat: calls `useToast`, `useChat`, `useChatSocket`, and passes their
-  outputs down. `handleSend` ties the open chat (`activeUser`) to `socket.send`.
+  outputs down. `handleSend` ties the open chat (`active`) to `socket.send`. Owns which group dialog is open and
+  computes the chat title.
 - **`ChatHeader`**: name, `@username`, connection dot (`.dot.on` / `.dot.off`), Logout button.
-- **`Sidebar`**: layout only: `UserSearch` above, "Conversations" heading, `ConversationList` below.
+- **`Sidebar`**: layout only: `UserSearch` above, "Conversations" heading with the "+ New group" button,
+  `ConversationList` below.
 - **`UserSearch`**: the search box and results list; owns `query`. Results are only shown while the query is
   non-empty.
-- **`ConversationList`**: one row per conversation partner with last-message preview, unread badge, and the
-  `.active` highlight for the open chat.
+- **`ConversationList`**: one row per direct chat (`@bob`) or group (`# Team`, preview `@sender: text`) with unread
+  badge and the `.active` highlight for the open chat.
 - **`ChatWindow`**: title, message list and composer; auto-scrolls to the newest message. `mine` (sender is me)
-  decides the bubble side.
-- **`MessageBubble`**: content + local time (`<time dateTime>` keeps the exact timestamp).
+  decides the bubble side. For groups the title has "N members" (opens the settings dialog), "Add members" and
+  "Leave".
+- **`MessageBubble`**: content + local time (`<time dateTime>` keeps the exact timestamp); `showSender` adds
+  `@sender` on top (other people's messages in groups).
+- **`Modal`**: native `<dialog>` opened with `showModal()` on mount, with a title. The parent closes it by unmounting
+  it; `onClose` also fires on Escape.
+- **`GroupDialog`**: `mode` `'create'` (name + members) or `'add'` (members only). Closes on Cancel, Escape or a
+  successful `onSubmit`.
+- **`GroupSettingsDialog`**: the open group's members with admin tags. Admins also get a rename field, Make / Remove
+  admin and Remove per member, and Delete group. `busy` allows one action at a time; destructive ones ask
+  `confirm()` first.
+- **`MemberPicker`**: search box + results like `UserSearch`, picks several users shown as removable chips;
+  `exclude` hides users who can't be picked.
 - **`MessageComposer`**: owns the input text; `maxLength` matches the backend's 2000-character limit. Clears the
   input only when `onSend` returns `true`.
 - **`Toast`**: renders nothing when there is no message; `role="status"` so screen readers announce it.
@@ -361,7 +449,7 @@ state lived inside `ChatPage`'s hooks, so it is discarded; the next login starts
 - Catch errors as `unknown` and turn them into text with `getErrorMessage`.
 - Components get data via props; only page-level components (`App`, `AuthPage`, `ChatPage`) call `useAuth`.
 - Named constants for tunables: `TOAST_DURATION_MS`, `DEBOUNCE_MS`, `HISTORY_PAGE_SIZE`, `RECONNECT_DELAY_MS`,
-  `MAX_MESSAGE_LENGTH`.
+  `MAX_MESSAGE_LENGTH`, `MAX_GROUP_NAME_LENGTH`.
 - The TypeScript config is strict, including `noUncheckedIndexedAccess` (e.g. `unread[name]` is
   `number | undefined`, hence `?? 0`).
 
@@ -378,7 +466,7 @@ option wrapped in `useEffectEvent`, the same way `onMessage` is.
 
 ## Going further
 
-- Load older history on scroll (`getHistory` already takes `page`)
+- Load older history on scroll (`getHistory` / `getGroupHistory` already take `page`)
 - Show online status (`GET /api/users/{username}/online` exists on the backend)
 - Queue messages typed while disconnected instead of rejecting them
 - Persist unread counts server-side; today they reset on reload

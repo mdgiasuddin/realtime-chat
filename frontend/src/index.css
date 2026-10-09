@@ -227,6 +227,10 @@ aside h3 {
     background: #fff;
     border-bottom: 1px solid #e5e7eb;
     font-weight: 600;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
 }
 
 .messages {
@@ -274,6 +278,123 @@ aside h3 {
     padding: 12px;
     background: #fff;
     border-top: 1px solid #e5e7eb;
+}
+
+/* groups */
+button.small {
+    padding: 4px 10px;
+    font-size: 13px;
+}
+
+.aside-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 16px;
+}
+
+.aside-head h3 {
+    margin: 0;
+}
+
+.chat-title small {
+    font-weight: 400;
+}
+
+.chat-title .actions {
+    display: flex;
+    gap: 6px;
+}
+
+.bubble .sender {
+    display: block;
+    font-size: 12px;
+    color: #2563eb;
+    margin-bottom: 2px;
+}
+
+dialog.card {
+    border: none;
+    max-width: 420px;
+}
+
+dialog::backdrop {
+    background: rgba(0, 0, 0, .35);
+}
+
+.dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-radius: 999px;
+    padding: 3px 4px 3px 10px;
+    font-size: 13px;
+}
+
+.chip button {
+    border: none;
+    background: none;
+    padding: 0 6px;
+    font-size: 15px;
+    line-height: 1;
+    color: inherit;
+}
+
+button.danger {
+    color: #b91c1c;
+    border-color: #fca5a5;
+    margin-right: auto;
+}
+
+dialog h3 {
+    margin: 16px 0 0;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: #6b7280;
+}
+
+.card form.inline-form {
+    flex-direction: row;
+}
+
+.list.members li {
+    cursor: default;
+}
+
+.list.members li:hover {
+    background: none;
+}
+
+.list.members .actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.tag {
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 11px;
+    font-weight: 500;
 }
 
 .toast {
