@@ -23,7 +23,7 @@ const isTarget = (target: ChatTarget | null, key: TargetKey): boolean =>
 const findConversation = (list: Conversation[], key: TargetKey): Conversation | undefined =>
     list.find((c) => targetKey(conversationTarget(c)) === key);
 
-/** Moves the chat `message` belongs to to the top, updating its preview. Unknown groups are left out. */
+/** Moves the chat `message` belongs to the top, updating its preview. Unknown groups are left out. */
 function bumpConversation(list: Conversation[], target: ChatTarget, message: ChatMessage): Conversation[] {
     const existing = findConversation(list, targetKey(target));
     const preview = {lastMessage: message.content, lastSender: message.sender, lastSentAt: message.sentAt};
