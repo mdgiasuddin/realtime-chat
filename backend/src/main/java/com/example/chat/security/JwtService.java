@@ -1,55 +1,114 @@
 package com.example.chat.security;
 
 import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.JwtParserBuilder;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.io.Decoders;
-import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.Nonnull;
+import jakarta.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
+import org.springframework.stereotype.Component;
 
-import javax.crypto.SecretKey;
+import java.io.InputStream;
+import java.security.Key;
+import java.security.KeyFactory;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.X509EncodedKeySpec;
+import java.util.Base64;
 import java.util.Date;
 
-@Service
+@Slf4j
+@Component
 public class JwtService {
 
-    private final SecretKey key;
-    private final long expirationMs;
+    @Value("${app.jwt.private-key-path}")
+    private String privateKeyPath;
+    @Value("${app.jwt.public-key-path}")
+    private String publicKeyPath;
+    private PrivateKey privateKey;
+    private PublicKey publicKey;
 
-    public JwtService(@Value("${app.jwt.secret}") String secret,
-                      @Value("${app.jwt.expiration-ms}") long expirationMs) {
-        this.key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(secret));
-        this.expirationMs = expirationMs;
+    @PostConstruct
+    public void init() {
+        try {
+            this.privateKey = loadPrivateKey(privateKeyPath);
+            this.publicKey = loadPublicKey(publicKeyPath);
+
+            log.info("Private & Public key loaded successfully");
+        } catch (final Exception e) {
+            log.error("Error loading private key", e);
+            throw new RuntimeException("Error loading private key", e);
+        }
     }
 
-    public String generateToken(String username) {
-        Date now = new Date();
-        return Jwts.builder()
-                .subject(username)
-                .issuedAt(now)
-                .expiration(new Date(now.getTime() + expirationMs))
-                .signWith(key)
-                .compact();
+    private PrivateKey loadPrivateKey(final String privateKeyPath) throws Exception {
+        try (final InputStream is = this.getClass().getClassLoader().getResourceAsStream(privateKeyPath)) {
+            if (is == null) {
+                throw new RuntimeException("Private key not found");
+            }
+
+            final String key = new String(is.readAllBytes());
+            final String privateKeyPEM = key.replaceAll("\\s", "");
+
+            final byte[] encoded = Base64.getDecoder().decode(privateKeyPEM);
+            final PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(encoded);
+            return KeyFactory.getInstance("RSA").generatePrivate(keySpec);
+        }
+    }
+
+    private PublicKey loadPublicKey(final String publicKeyPath) throws Exception {
+        try (final InputStream is = this.getClass().getClassLoader().getResourceAsStream(publicKeyPath)) {
+            if (is == null) {
+                throw new RuntimeException("Public key not found");
+            }
+
+            final String key = new String(is.readAllBytes());
+            final String publicKeyPEM = key.replaceAll("\\s", "");
+
+            final byte[] encoded = Base64.getDecoder().decode(publicKeyPEM);
+            final X509EncodedKeySpec keySpec = new X509EncodedKeySpec(encoded);
+            return KeyFactory.getInstance("RSA").generatePublic(keySpec);
+        }
+    }
+
+    public String generateToken(@Nonnull final String username) {
+        return buildToken(username, privateKey);
     }
 
     public String extractUsername(String token) {
-        return parse(token).getSubject();
+        return extractAllClaims(token).getSubject();
     }
 
-    /**
-     * True if the signature is valid and the token is not expired.
-     */
     public boolean isValid(String token) {
         try {
-            parse(token);
+            extractAllClaims(token);
             return true;
-        } catch (JwtException | IllegalArgumentException e) {
+        } catch (Exception e) {
             return false;
         }
     }
 
-    private Claims parse(String token) {
-        return Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
+    protected Claims extractAllClaims(String token) {
+        JwtParserBuilder parserBuilder = Jwts.parser().verifyWith(publicKey);
+
+        return parserBuilder
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+    }
+
+    protected String buildToken(String username, Key signingKey) {
+        final Date now = new Date();
+        final Date expiration = new Date(System.currentTimeMillis() + 86400000);
+
+        return Jwts.builder()
+                .subject(username)
+                .issuedAt(now)
+                .expiration(expiration)
+                .issuer("realtime-chat-app")
+                .signWith(signingKey)
+                .compact();
     }
 }
