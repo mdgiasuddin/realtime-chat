@@ -1,0 +1,48 @@
+package com.example.chat.group.entity;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.Id;
+import jakarta.persistence.IdClass;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+import java.time.Instant;
+
+import static com.example.chat.group.entity.GroupRole.ADMIN;
+import static com.example.chat.group.entity.GroupRole.MEMBER;
+import static jakarta.persistence.EnumType.STRING;
+
+@Entity
+@IdClass(GroupMemberId.class)
+@Getter
+@Setter
+@NoArgsConstructor
+public class GroupMember {
+
+    @Id
+    private Long groupId;
+
+    @Id
+    @Column(length = 50)
+    private String username;
+
+    @Enumerated(STRING)
+    @Column(nullable = false, length = 10)
+    private GroupRole role = MEMBER;
+
+    @Column(nullable = false)
+    private Instant joinedAt = Instant.now();
+
+    public GroupMember(Long groupId, String username, GroupRole role) {
+        this.groupId = groupId;
+        this.username = username;
+        this.role = role;
+    }
+
+    public boolean isAdmin() {
+        return role == ADMIN;
+    }
+}

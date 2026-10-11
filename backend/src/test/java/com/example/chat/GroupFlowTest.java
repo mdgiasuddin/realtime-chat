@@ -1,12 +1,12 @@
 package com.example.chat;
 
-import com.example.chat.message.MessageService;
-import com.example.chat.message.SendMessageRequest;
+import com.example.chat.message.dto.SendMessageRequest;
+import com.example.chat.message.service.MessageService;
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
