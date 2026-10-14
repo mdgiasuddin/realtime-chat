@@ -110,3 +110,23 @@ export interface GroupEvent {
 export interface ErrorResponse {
     error: string;
 }
+
+/** My own E2EE key bundle; both fields are null until keys are set up. */
+export interface KeyBundle {
+    /** Base64 SPKI. */
+    publicKey: string | null;
+    /** JSON-encoded BackupBlob (see crypto/keyBackup.ts), opaque to the server. */
+    encryptedPrivateKey: string | null;
+}
+
+export interface PutKeysRequest {
+    publicKey: string;
+    encryptedPrivateKey: string;
+    /** true = knowingly replace an existing key pair (otherwise a different key -> 409). */
+    rotate: boolean;
+}
+
+export interface PublicKeyResponse {
+    username: string;
+    publicKey: string;
+}

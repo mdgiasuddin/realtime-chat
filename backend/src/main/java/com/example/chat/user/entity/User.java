@@ -54,6 +54,18 @@ public class User implements UserDetails {
     @Column(nullable = false)
     private Instant createdAt = Instant.now();
 
+    /**
+     * E2EE public key as base64 SPKI, safe to share.
+     */
+    @Column(name = "public_key", length = 500)
+    private String publicKey;
+
+    /**
+     * JSON blob holding the private key, encrypted client-side (opaque to the server).
+     */
+    @Column(name = "key_backup", length = 4000)
+    private String keyBackup;
+
     @Override
     public @NonNull Collection<? extends GrantedAuthority> getAuthorities() {
         Set<SimpleGrantedAuthority> authorities = new HashSet<>();

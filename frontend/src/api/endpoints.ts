@@ -6,7 +6,10 @@ import type {
     Conversation,
     CreateGroupRequest,
     Group,
+    KeyBundle,
     LoginRequest,
+    PublicKeyResponse,
+    PutKeysRequest,
     RegisterRequest,
     RenameGroupRequest,
     UpdateMemberRequest,
@@ -71,7 +74,19 @@ export function createChatApi(authed: AuthedRequest) {
 
         /** Returns the newest messages first. */
         getGroupHistory: (groupId: number, page = 0, size = 50) =>
-            authed<ChatMessage[]>(`/api/groups/${groupId}/messages?page=${page}&size=${size}`)
+            authed<ChatMessage[]>(`/api/groups/${groupId}/messages?page=${page}&size=${size}`),
+
+        /** My public key + encrypted private-key backup. */
+        getMyKeys: () =>
+            authed<KeyBundle>('/api/users/me/keys'),
+
+        /** 409 if a different public key is registered and rotate is false. */
+        putMyKeys: (data: PutKeysRequest) =>
+            authed<void>('/api/users/me/keys', {method: 'PUT', body: data}),
+
+        /** 404 if the user has no key yet. */
+        getPublicKey: (username: string) =>
+            authed<PublicKeyResponse>(`/api/users/${encodeURIComponent(username)}/public-key`)
     };
 }
 

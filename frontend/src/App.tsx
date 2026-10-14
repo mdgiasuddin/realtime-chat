@@ -1,8 +1,11 @@
 import {useAuth} from './hooks/useAuth';
 import AuthPage from './components/auth/AuthPage';
+import KeyGate from './components/auth/KeyGate';
 import ChatPage from './components/chat/ChatPage';
 
 export default function App() {
     const {user} = useAuth();
-    return user ? <ChatPage user={user}/> : <AuthPage/>;
+    return user
+        ? <KeyGate key={user.username} user={user}><ChatPage user={user}/></KeyGate>
+        : <AuthPage/>;
 }
