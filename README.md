@@ -77,3 +77,7 @@ frontend/src
 ```
 
 `npm run typecheck` runs the TypeScript compiler; `npm run build` type-checks before bundling.
+
+```angular2html
+passphrase abCD1587642596huy
+```
