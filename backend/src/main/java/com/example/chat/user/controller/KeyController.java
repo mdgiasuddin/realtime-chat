@@ -1,6 +1,7 @@
 package com.example.chat.user.controller;
 
 import com.example.chat.exception.ConflictException;
+import com.example.chat.exception.ForbiddenException;
 import com.example.chat.exception.NotFoundException;
 import com.example.chat.user.dto.KeyBundleResponse;
 import com.example.chat.user.dto.PublicKeyResponse;
@@ -9,6 +10,7 @@ import com.example.chat.user.entity.User;
 import com.example.chat.user.repository.UserRepository;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -35,6 +37,7 @@ public class KeyController {
     private static final int MAX_BATCH = 500;
 
     private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
     /**
      * My own public key + encrypted backup (only the owner can read this).
@@ -46,11 +49,15 @@ public class KeyController {
     }
 
     /**
-     * Store or update my key bundle. Changing the public key requires rotate=true (-> 409 otherwise).
+     * Store or update my key bundle. Requires my login password (-> 403 if wrong; not 401, which clients treat as an
+     * expired session). Changing the public key additionally requires rotate=true (-> 409 otherwise).
      */
     @PutMapping("/me/keys")
     public Map<String, String> putMyKeys(@Valid @RequestBody PutKeysRequest request, Principal me) {
         User user = userRepository.findByUsername(me.getName()).orElseThrow();
+        if (!passwordEncoder.matches(request.password(), user.getPassword())) {
+            throw new ForbiddenException("Incorrect password");
+        }
 
         boolean replacingKey = user.getPublicKey() != null && !user.getPublicKey().equals(request.publicKey());
         if (replacingKey && !request.rotate()) {

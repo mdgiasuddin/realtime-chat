@@ -36,16 +36,19 @@ export async function checkKeyStatus(username: string, api: KeyApi): Promise<Key
     return {status: remote.encryptedPrivateKey ? 'needs-restore' : 'needs-setup'};
 }
 
-/** First-time setup (or deliberate rotation): new key pair, encrypted backup uploaded, key stored locally. */
+/**
+ * First-time setup (or deliberate rotation): new key pair, encrypted backup uploaded, key stored locally.
+ * @param password the login password; the server requires it for any key change
+ */
 export async function setupKeys(
-    username: string, passphrase: string, api: KeyApi, rotate = false
+    username: string, passphrase: string, password: string, api: KeyApi, rotate = false
 ): Promise<Identity> {
     const {pair, jwk} = await generateIdentity();
     const blob = await encryptBackup(jwk, passphrase, username);
     const publicKey = await exportPublicKey(pair.publicKey);
 
     // Upload first: if this fails nothing is stored locally and the user can simply retry.
-    await api.putMyKeys({publicKey, encryptedPrivateKey: JSON.stringify(blob), rotate});
+    await api.putMyKeys({publicKey, encryptedPrivateKey: JSON.stringify(blob), rotate, password});
     await saveKeyPair(username, pair);
     return {pair, publicKey};
 }
@@ -73,13 +76,14 @@ export async function restoreKeys(username: string, passphrase: string, api: Key
  * decrypt it with the old passphrase, encrypt it with the new one, upload (same public key, no rotation).
  */
 export async function changePassphrase(
-    username: string, oldPassphrase: string, newPassphrase: string, api: KeyApi
+    username: string, oldPassphrase: string, newPassphrase: string, password: string, api: KeyApi
 ): Promise<void> {
     const {publicKey, blob} = await fetchBackup(api);
     const jwk = await decryptBackup(blob, oldPassphrase, username);
     await api.putMyKeys({
         publicKey,
         encryptedPrivateKey: JSON.stringify(await encryptBackup(jwk, newPassphrase, username)),
-        rotate: false
+        rotate: false,
+        password
     });
 }

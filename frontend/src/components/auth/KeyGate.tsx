@@ -19,6 +19,8 @@ export default function KeyGate({user, children}: KeyGateProps) {
     const [identity, setIdentity] = useState<Identity | null>(null);
     const [passphrase, setPassphrase] = useState('');
     const [confirm, setConfirm] = useState('');
+    /** Login password; the server re-checks it before accepting new keys. */
+    const [password, setPassword] = useState('');
     const [rotate, setRotate] = useState(false);
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(false);
@@ -69,10 +71,11 @@ export default function KeyGate({user, children}: KeyGateProps) {
         setBusy(true);
         try {
             setIdentity(isSetup
-                ? await setupKeys(user.username, passphrase, chatApi, rotate)
+                ? await setupKeys(user.username, passphrase, password, chatApi, rotate)
                 : await restoreKeys(user.username, passphrase, chatApi));
             setPassphrase('');
             setConfirm('');
+            setPassword('');
             setStatus('ready');
         } catch (err) {
             setError(getErrorMessage(err));
@@ -113,8 +116,13 @@ export default function KeyGate({user, children}: KeyGateProps) {
                     <input type="password" placeholder="Recovery passphrase" autoComplete="off" required
                            value={passphrase} onChange={(e) => setPassphrase(e.target.value)}/>
                     {isSetup && (
-                        <input type="password" placeholder="Confirm passphrase" autoComplete="off" required
-                               value={confirm} onChange={(e) => setConfirm(e.target.value)}/>
+                        <>
+                            <input type="password" placeholder="Confirm passphrase" autoComplete="off" required
+                                   value={confirm} onChange={(e) => setConfirm(e.target.value)}/>
+                            <input type="password" placeholder="Login password (to confirm it's you)"
+                                   autoComplete="current-password" required
+                                   value={password} onChange={(e) => setPassword(e.target.value)}/>
+                        </>
                     )}
                     <button className="primary" type="submit" disabled={busy}>
                         {busy ? 'Working…' : isSetup ? 'Create keys' : 'Restore'}

@@ -124,6 +124,8 @@ export interface PutKeysRequest {
     encryptedPrivateKey: string;
     /** true = knowingly replace an existing key pair (otherwise a different key -> 409). */
     rotate: boolean;
+    /** Login password, re-checked by the server (wrong -> 403), so a stolen JWT alone can't replace the keys. */
+    password: string;
 }
 
 export interface PublicKeyResponse {

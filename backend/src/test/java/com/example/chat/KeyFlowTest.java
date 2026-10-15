@@ -44,6 +44,11 @@ class KeyFlowTest {
         mvc.perform(get("/api/users/" + alice + "/public-key").header("Authorization", "Bearer " + bobToken))
                 .andExpect(status().isNotFound());
 
+        // wrong login password -> 403, nothing stored
+        putKeys(aliceToken, "pk1", "blob1", false, "wrong-password").andExpect(status().isForbidden());
+        mvc.perform(get("/api/users/me/keys").header("Authorization", "Bearer " + aliceToken))
+                .andExpect(jsonPath("$.publicKey").isEmpty());
+
         putKeys(aliceToken, "pk1", "blob1", false).andExpect(status().isOk());
 
         mvc.perform(get("/api/users/me/keys").header("Authorization", "Bearer " + aliceToken))
@@ -56,6 +61,7 @@ class KeyFlowTest {
 
         // different public key without rotate -> 409, with rotate -> ok
         putKeys(aliceToken, "pk2", "blob3", false).andExpect(status().isConflict());
+        putKeys(aliceToken, "pk2", "blob3", true, "wrong-password").andExpect(status().isForbidden());
         putKeys(aliceToken, "pk2", "blob3", true).andExpect(status().isOk());
 
         // others see only the public key (case-insensitive lookup)
@@ -78,12 +84,16 @@ class KeyFlowTest {
         putKeys(aliceToken, "", "blob", false).andExpect(status().isBadRequest());
     }
 
+    private ResultActions putKeys(String token, String publicKey, String blob, boolean rotate) throws Exception {
+        return putKeys(token, publicKey, blob, rotate, "secret1");
+    }
+
     private ResultActions putKeys(
-            String token, String publicKey, String blob, boolean rotate) throws Exception {
+            String token, String publicKey, String blob, boolean rotate, String password) throws Exception {
         return mvc.perform(put("/api/users/me/keys").header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"publicKey\":\"" + publicKey + "\",\"encryptedPrivateKey\":\"" + blob
-                        + "\",\"rotate\":" + rotate + "}"));
+                        + "\",\"rotate\":" + rotate + ",\"password\":\"" + password + "\"}"));
     }
 
     private void register(String username) throws Exception {
