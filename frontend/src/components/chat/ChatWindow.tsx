@@ -1,5 +1,6 @@
 import {useEffect, useRef} from 'react';
-import type {ChatMessage, Group} from '../../types/api';
+import type {DisplayMessage} from '../../crypto/messageCipher';
+import type {Group} from '../../types/api';
 import {cx} from '../../utils/classNames';
 import type {ChatTarget} from '../../utils/conversation';
 import MessageBubble from './MessageBubble';
@@ -13,9 +14,9 @@ interface ChatWindowProps {
     title: string | null;
     /** Details of the open group (null while loading, or for direct chats). */
     group: Group | null;
-    messages: ChatMessage[];
-    /** Returns true if the message was sent. */
-    onSend: (content: string) => boolean;
+    messages: DisplayMessage[];
+    /** Resolves to true if the message was sent. */
+    onSend: (content: string) => Promise<boolean>;
     /** Opens the member list / group settings. */
     onShowMembers: () => void;
     onAddMembers: () => void;

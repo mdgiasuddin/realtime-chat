@@ -2,14 +2,21 @@ import {type FormEvent, type ReactNode, useEffect, useState} from 'react';
 import {useAuth} from '../../hooks/useAuth';
 import type {AuthUser} from '../../context/AuthContext';
 import {getErrorMessage} from '../../utils/errors';
-import {checkKeyStatus, type KeyStatus, restoreKeys, setupKeys} from '../../crypto/identity';
+import {checkKeyStatus, type Identity, type KeyStatus, restoreKeys, setupKeys} from '../../crypto/identity';
 
 const MIN_PASSPHRASE_LENGTH = 12;
 
+interface KeyGateProps {
+    user: AuthUser;
+    /** Rendered once the key is ready, with the identity to encrypt / decrypt messages with. */
+    children: (identity: Identity) => ReactNode;
+}
+
 /** Blocks the chat until this device holds the user's E2EE key (set up for the first time, or restored). */
-export default function KeyGate({user, children}: { user: AuthUser; children: ReactNode }) {
+export default function KeyGate({user, children}: KeyGateProps) {
     const {chatApi, logout} = useAuth();
-    const [status, setStatus] = useState<KeyStatus | 'loading'>('loading');
+    const [status, setStatus] = useState<KeyStatus['status'] | 'loading'>('loading');
+    const [identity, setIdentity] = useState<Identity | null>(null);
     const [passphrase, setPassphrase] = useState('');
     const [confirm, setConfirm] = useState('');
     const [rotate, setRotate] = useState(false);
@@ -20,7 +27,9 @@ export default function KeyGate({user, children}: { user: AuthUser; children: Re
         let cancelled = false;
         checkKeyStatus(user.username, chatApi)
             .then((s) => {
-                if (!cancelled) setStatus(s);
+                if (cancelled) return;
+                if (s.status === 'ready') setIdentity(s.identity);
+                setStatus(s.status);
             })
             .catch((err: unknown) => {
                 if (!cancelled) setError(getErrorMessage(err));
@@ -30,7 +39,7 @@ export default function KeyGate({user, children}: { user: AuthUser; children: Re
         };
     }, [user.username, chatApi]);
 
-    if (status === 'ready') return <>{children}</>;
+    if (status === 'ready' && identity) return children(identity);
 
     if (status === 'loading') {
         return (
@@ -59,8 +68,9 @@ export default function KeyGate({user, children}: { user: AuthUser; children: Re
         }
         setBusy(true);
         try {
-            if (isSetup) await setupKeys(user.username, passphrase, chatApi, rotate);
-            else await restoreKeys(user.username, passphrase, chatApi);
+            setIdentity(isSetup
+                ? await setupKeys(user.username, passphrase, chatApi, rotate)
+                : await restoreKeys(user.username, passphrase, chatApi));
             setPassphrase('');
             setConfirm('');
             setStatus('ready');

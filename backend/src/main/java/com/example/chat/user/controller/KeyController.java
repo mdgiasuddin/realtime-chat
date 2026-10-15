@@ -14,9 +14,11 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.security.Principal;
+import java.util.List;
 import java.util.Map;
 
 import static java.util.Locale.ROOT;
@@ -29,6 +31,8 @@ import static java.util.Locale.ROOT;
 @RequestMapping("/api/users")
 @RequiredArgsConstructor
 public class KeyController {
+
+    private static final int MAX_BATCH = 500;
 
     private final UserRepository userRepository;
 
@@ -69,5 +73,21 @@ public class KeyController {
                 .filter(user -> user.getPublicKey() != null)
                 .map(user -> new PublicKeyResponse(user.getUsername(), user.getPublicKey()))
                 .orElseThrow(() -> new NotFoundException("No public key registered for this user"));
+    }
+
+    /**
+     * Public keys of several users at once (e.g. all members of a group): GET /api/users/public-keys?usernames=a,b.
+     * Users without a registered key are left out.
+     */
+    @GetMapping("/public-keys")
+    public List<PublicKeyResponse> publicKeys(@RequestParam List<String> usernames) {
+        if (usernames.size() > MAX_BATCH) {
+            throw new IllegalArgumentException("At most " + MAX_BATCH + " usernames per request");
+        }
+        List<String> normalized = usernames.stream().map(u -> u.trim().toLowerCase(ROOT)).distinct().toList();
+        return userRepository.findByUsernameIn(normalized).stream()
+                .filter(user -> user.getPublicKey() != null)
+                .map(user -> new PublicKeyResponse(user.getUsername(), user.getPublicKey()))
+                .toList();
     }
 }

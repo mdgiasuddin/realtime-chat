@@ -69,6 +69,12 @@ frontend/src
 │   ├── useChatSocket.ts          STOMP connection with JWT, subscribe, send, auto-reconnect
 │   ├── useUserSearch.ts          debounced, abortable user search
 │   └── useToast.ts               auto-dismissing notification
+├── crypto/                       end-to-end encryption (WebCrypto, nothing readable reaches the server)
+│   ├── keyStore.ts               identity key pair in IndexedDB (private key non-extractable)
+│   ├── keyBackup.ts              ECDH P-256 identity + passphrase backup (PBKDF2 + AES-GCM)
+│   ├── identity.ts               setup / restore / status of this device's key
+│   ├── messageCrypto.ts          per-message AES key, wrapped per recipient via ECDH
+│   └── messageCipher.ts          encrypt for a chat, decrypt history / live messages / previews
 ├── utils/                        cx(), formatTime(), getErrorMessage()
 └── components/
     ├── auth/                     AuthPage (tabs) + LoginForm + RegisterForm

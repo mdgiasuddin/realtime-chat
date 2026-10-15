@@ -33,7 +33,10 @@ public class ChatMessage {
 
     private Long groupId;       // for group messages
 
-    @Column(nullable = false, length = 2000)
+    /**
+     * End-to-end encrypted envelope (JSON) the server cannot read.
+     */
+    @Column(nullable = false, columnDefinition = "text")
     private String content;
 
     @Column(nullable = false)

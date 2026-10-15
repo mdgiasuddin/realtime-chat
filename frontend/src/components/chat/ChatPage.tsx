@@ -1,9 +1,12 @@
-import {useCallback, useState} from 'react';
+import {useCallback, useMemo, useState} from 'react';
 import type {AuthUser} from '../../context/AuthContext';
+import type {Identity} from '../../crypto/identity';
+import {createMessageCipher} from '../../crypto/messageCipher';
 import {useAuth} from '../../hooks/useAuth';
 import {useChat} from '../../hooks/useChat';
 import {useChatSocket} from '../../hooks/useChatSocket';
 import {useToast} from '../../hooks/useToast';
+import {getErrorMessage} from '../../utils/errors';
 import ChatHeader from './ChatHeader';
 import ChatWindow from './ChatWindow';
 import GroupDialog from './GroupDialog';
@@ -13,10 +16,15 @@ import Toast from './Toast';
 
 interface ChatPageProps {
     user: AuthUser;
+    /** This device's E2EE key, unlocked by KeyGate. */
+    identity: Identity;
 }
 
-export default function ChatPage({user}: ChatPageProps) {
+export default function ChatPage({user, identity}: ChatPageProps) {
     const {chatApi, logout} = useAuth();
+    const cipher = useMemo(
+        () => createMessageCipher(user.username, identity, chatApi),
+        [user.username, identity, chatApi]);
     const {toast, showToast} = useToast();
     /** Which group dialog is open, if any. */
     const [dialog, setDialog] = useState<'create' | 'add' | 'settings' | null>(null);
@@ -25,7 +33,7 @@ export default function ChatPage({user}: ChatPageProps) {
         conversations, unread, active, activeGroup, messages,
         receiveMessage, receiveGroupEvent, resync, openConversation,
         createGroup, addMembers, leaveGroup, renameGroup, removeMember, setAdmin, deleteGroup
-    } = useChat({me: user.username, chatApi, onNotify: showToast});
+    } = useChat({me: user.username, chatApi, cipher, onNotify: showToast});
 
     const {connected, send} = useChatSocket({
         token: user.token,
@@ -35,12 +43,25 @@ export default function ChatPage({user}: ChatPageProps) {
         onError: showToast
     });
 
-    const handleSend = useCallback((content: string) => {
-        if (!active) return false;
-        const sent = send(active, content);
+    /** Encrypts for everyone in the open chat, then sends. Only the ciphertext reaches the server. */
+    const handleSend = useCallback(async (content: string) => {
+        const target = active;
+        if (!target) return false;
+        if (target.type === 'group' && !activeGroup) {
+            showToast('Still loading the group members…');
+            return false;
+        }
+        let envelope: string;
+        try {
+            envelope = await cipher.encrypt(target, content, activeGroup?.members.map((m) => m.username) ?? []);
+        } catch (err) {
+            showToast(getErrorMessage(err));
+            return false;
+        }
+        const sent = send(target, envelope);
         if (!sent) showToast('Not connected, retrying…');
         return sent;
-    }, [send, active, showToast]);
+    }, [send, active, activeGroup, cipher, showToast]);
 
     const handleDialogSubmit = useCallback((name: string, usernames: string[]) =>
             dialog === 'create' ? createGroup(name, usernames) : addMembers(usernames),

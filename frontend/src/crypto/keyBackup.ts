@@ -1,21 +1,14 @@
 // Private-key backup: PBKDF2-SHA256 derives an AES-256-GCM key from the recovery passphrase,
 // which encrypts the private key's JWK. Only the resulting blob ever leaves the browser.
 
-const ECDH = {name: 'ECDH', namedCurve: 'P-256'} as const;
+import {ECDH, fromB64, toB64} from './encoding';
+
 const PBKDF2_ITERATIONS = 600_000; // OWASP guidance for PBKDF2-HMAC-SHA256
 const MIN_ITER = 100_000;
 const MAX_ITER = 5_000_000; // refuse absurd server-supplied values
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
-
-const toB64 = (buf: ArrayBuffer | Uint8Array): string => {
-    const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
-    let s = '';
-    bytes.forEach((b) => (s += String.fromCharCode(b)));
-    return btoa(s);
-};
-const fromB64 = (s: string): Uint8Array<ArrayBuffer> => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 
 /** What gets uploaded (as JSON text). Versioned so the KDF can be upgraded later (e.g. Argon2id). */
 export interface BackupBlob {

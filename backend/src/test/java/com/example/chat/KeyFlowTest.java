@@ -66,6 +66,14 @@ class KeyFlowTest {
                 .andExpect(jsonPath("$.publicKey").value("pk2"))
                 .andExpect(jsonPath("$.encryptedPrivateKey").doesNotExist());
 
+        // batch lookup: users without a key (bob) and unknown users are left out
+        mvc.perform(get("/api/users/public-keys").param("usernames", alice.toUpperCase() + "," + bob + ",nobody_" + suffix)
+                        .header("Authorization", "Bearer " + bobToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].username").value(alice))
+                .andExpect(jsonPath("$[0].publicKey").value("pk2"));
+
         // blank fields -> 400
         putKeys(aliceToken, "", "blob", false).andExpect(status().isBadRequest());
     }

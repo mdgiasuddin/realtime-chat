@@ -6,6 +6,10 @@ import ChatPage from './components/chat/ChatPage';
 export default function App() {
     const {user} = useAuth();
     return user
-        ? <KeyGate key={user.username} user={user}><ChatPage user={user}/></KeyGate>
+        ? (
+            <KeyGate key={user.username} user={user}>
+                {(identity) => <ChatPage user={user} identity={identity}/>}
+            </KeyGate>
+        )
         : <AuthPage/>;
 }

@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {ApiError} from '../api/client';
 import type {ChatApi} from '../api/endpoints';
+import type {DisplayMessage, MessageCipher} from '../crypto/messageCipher';
 import type {ChatMessage, Conversation, Group, GroupEvent} from '../types/api';
 import {type ChatTarget, conversationTarget, messageTarget, targetKey, type TargetKey} from '../utils/conversation';
 import {getErrorMessage} from '../utils/errors';
@@ -14,6 +15,8 @@ interface ChatOptions {
     /** Username of the logged-in user. */
     me: string;
     chatApi: ChatApi;
+    /** Decrypts everything that comes in (history, live messages, previews). */
+    cipher: MessageCipher;
     onNotify: (message: string) => void;
 }
 
@@ -24,7 +27,7 @@ const findConversation = (list: Conversation[], key: TargetKey): Conversation | 
     list.find((c) => targetKey(conversationTarget(c)) === key);
 
 /** Moves the chat `message` belongs to the top, updating its preview. Unknown groups are left out. */
-function bumpConversation(list: Conversation[], target: ChatTarget, message: ChatMessage): Conversation[] {
+function bumpConversation(list: Conversation[], target: ChatTarget, message: DisplayMessage): Conversation[] {
     const existing = findConversation(list, targetKey(target));
     const preview = {lastMessage: message.content, lastSender: message.sender, lastSentAt: message.sentAt};
     let updated: Conversation;
@@ -53,37 +56,40 @@ function upsertGroup(list: Conversation[], group: Group): Conversation[] {
 }
 
 /** History goes first; live messages that arrived while it was loading are kept, without duplicates. */
-function mergeHistory(history: ChatMessage[], live: ChatMessage[]): ChatMessage[] {
+function mergeHistory(history: DisplayMessage[], live: DisplayMessage[]): DisplayMessage[] {
     const ids = new Set(history.map((m) => m.id));
     return [...history, ...live.filter((m) => !ids.has(m.id))];
 }
 
 /** Conversation list, unread counters, the open chat and its messages; group management; resync. */
-export function useChat({me, chatApi, onNotify}: ChatOptions) {
+export function useChat({me, chatApi, cipher, onNotify}: ChatOptions) {
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [unread, setUnread] = useState<UnreadCounts>({});
     const [active, setActive] = useState<ChatTarget | null>(null);
     /** Details (members) of the open chat when it's a group; null while loading or for direct chats. */
     const [activeGroup, setActiveGroup] = useState<Group | null>(null);
-    const [messages, setMessages] = useState<ChatMessage[]>([]);
+    const [messages, setMessages] = useState<DisplayMessage[]>([]);
 
     // Let async callbacks read the current values rather than the ones captured at creation.
     const activeRef = useRef<ChatTarget | null>(null);
     const conversationsRef = useRef<Conversation[]>([]);
+    // Live messages are decrypted one after another, so they're applied in the order they arrived.
+    const receiveQueueRef = useRef<Promise<void>>(Promise.resolve());
     useEffect(() => {
         conversationsRef.current = conversations;
     }, [conversations]);
 
     const loadConversations = useCallback(() => {
         chatApi.getConversations()
+            .then((list) => Promise.all(list.map(cipher.decryptPreview)))
             .then(setConversations)
             .catch((err: unknown) => onNotify(getErrorMessage(err)));
-    }, [chatApi, onNotify]);
+    }, [chatApi, cipher, onNotify]);
 
     useEffect(loadConversations, [loadConversations]);
 
-    /** Handles incoming (and echoed) messages from the WebSocket. */
-    const receiveMessage = useCallback((message: ChatMessage) => {
+    /** Adds a decrypted message to its chat (or counts it as unread). */
+    const applyMessage = useCallback((message: DisplayMessage) => {
         const isMine = message.sender === me;
         const target = messageTarget(message, me);
         const key = targetKey(target);
@@ -100,6 +106,11 @@ export function useChat({me, chatApi, onNotify}: ChatOptions) {
                 : `New message from @${message.sender}`);
         }
     }, [me, onNotify]);
+
+    /** Handles incoming (and echoed) messages from the WebSocket. */
+    const receiveMessage = useCallback((raw: ChatMessage) => {
+        receiveQueueRef.current = receiveQueueRef.current.then(async () => applyMessage(await cipher.decrypt(raw)));
+    }, [cipher, applyMessage]);
 
     /** Drops a group from the list, closing it if it's open. */
     const removeGroup = useCallback((groupId: number) => {
@@ -130,8 +141,9 @@ export function useChat({me, chatApi, onNotify}: ChatOptions) {
                 setActiveGroup(group);
                 page = history;
             }
+            const decrypted = await Promise.all(page.map(cipher.decrypt));
             if (!isTarget(activeRef.current, key)) return; // user switched chats while loading
-            const history = page.toReversed();              // API returns newest first
+            const history = decrypted.toReversed();         // API returns newest first
             setMessages((prev) => mergeHistory(history, prev));
         } catch (err) {
             if (target.type === 'group' && err instanceof ApiError && err.status === 403) {
@@ -142,7 +154,7 @@ export function useChat({me, chatApi, onNotify}: ChatOptions) {
                 onNotify(getErrorMessage(err));
             }
         }
-    }, [chatApi, onNotify, removeGroup]);
+    }, [chatApi, cipher, onNotify, removeGroup]);
 
     /** Opens a chat and loads its history. */
     const openConversation = useCallback(async (target: ChatTarget) => {

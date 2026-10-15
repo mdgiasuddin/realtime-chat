@@ -11,34 +11,43 @@ import {
 
 type KeyApi = Pick<ChatApi, 'getMyKeys' | 'putMyKeys'>;
 
+/** This device's usable identity: the key pair plus the public key as registered on the server. */
+export interface Identity {
+    pair: CryptoKeyPair;
+    /** Base64 SPKI. */
+    publicKey: string;
+}
+
 export type KeyStatus =
-    | 'ready'            // local key exists and matches the server
-    | 'needs-setup'      // no key anywhere: create one + backup
-    | 'needs-restore'    // backup on server, nothing on this device
-    | 'mismatch';        // local key differs from the server's public key
+    | { status: 'ready'; identity: Identity } // local key exists and matches the server
+    | { status: 'needs-setup' }               // no key anywhere: create one + backup
+    | { status: 'needs-restore' }             // backup on server, nothing on this device
+    | { status: 'mismatch' };                 // local key differs from the server's public key
 
 export async function checkKeyStatus(username: string, api: KeyApi): Promise<KeyStatus> {
     const [local, remote] = await Promise.all([loadKeyPair(username), api.getMyKeys()]);
 
     if (local) {
-        if (!remote.publicKey) return 'needs-setup'; // e.g. DB reset: the server has nothing
-        return remote.publicKey === await exportPublicKey(local.publicKey) ? 'ready' : 'mismatch';
+        if (!remote.publicKey) return {status: 'needs-setup'}; // e.g. DB reset: the server has nothing
+        return remote.publicKey === await exportPublicKey(local.publicKey)
+            ? {status: 'ready', identity: {pair: local, publicKey: remote.publicKey}}
+            : {status: 'mismatch'};
     }
-    return remote.encryptedPrivateKey ? 'needs-restore' : 'needs-setup';
+    return {status: remote.encryptedPrivateKey ? 'needs-restore' : 'needs-setup'};
 }
 
 /** First-time setup (or deliberate rotation): new key pair, encrypted backup uploaded, key stored locally. */
-export async function setupKeys(username: string, passphrase: string, api: KeyApi, rotate = false): Promise<void> {
+export async function setupKeys(
+    username: string, passphrase: string, api: KeyApi, rotate = false
+): Promise<Identity> {
     const {pair, jwk} = await generateIdentity();
     const blob = await encryptBackup(jwk, passphrase, username);
+    const publicKey = await exportPublicKey(pair.publicKey);
 
     // Upload first: if this fails nothing is stored locally and the user can simply retry.
-    await api.putMyKeys({
-        publicKey: await exportPublicKey(pair.publicKey),
-        encryptedPrivateKey: JSON.stringify(blob),
-        rotate
-    });
+    await api.putMyKeys({publicKey, encryptedPrivateKey: JSON.stringify(blob), rotate});
     await saveKeyPair(username, pair);
+    return {pair, publicKey};
 }
 
 async function fetchBackup(api: KeyApi): Promise<{ publicKey: string; blob: BackupBlob }> {
@@ -48,7 +57,7 @@ async function fetchBackup(api: KeyApi): Promise<{ publicKey: string; blob: Back
 }
 
 /** New device / cleared browser: download the blob, decrypt with the passphrase, store locally. */
-export async function restoreKeys(username: string, passphrase: string, api: KeyApi): Promise<void> {
+export async function restoreKeys(username: string, passphrase: string, api: KeyApi): Promise<Identity> {
     const {publicKey, blob} = await fetchBackup(api);
     const pair = await importIdentity(await decryptBackup(blob, passphrase, username));
 
@@ -56,6 +65,7 @@ export async function restoreKeys(username: string, passphrase: string, api: Key
         throw new Error('The backup does not match the public key registered for this account');
     }
     await saveKeyPair(username, pair);
+    return {pair, publicKey};
 }
 
 /**

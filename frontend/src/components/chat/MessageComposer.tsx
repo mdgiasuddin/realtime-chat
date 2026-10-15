@@ -1,21 +1,30 @@
 import {type SubmitEvent, useState} from 'react';
 
-// Matches @Size(max = 2000) on SendMessageRequest.content in the backend.
+// The backend limits the encrypted envelope (SendMessageRequest.MAX_CONTENT_LENGTH), not the text; this keeps
+// direct and small-group messages well within it.
 const MAX_MESSAGE_LENGTH = 2000;
 
 interface MessageComposerProps {
     disabled: boolean;
-    /** Returns true if the message was sent; the input is only cleared then. */
-    onSend: (content: string) => boolean;
+    /** Resolves to true if the message was sent; the input is only cleared then. */
+    onSend: (content: string) => Promise<boolean>;
 }
 
 export default function MessageComposer({disabled, onSend}: MessageComposerProps) {
     const [text, setText] = useState('');
+    /** Encrypting (fetches the recipients' keys first). */
+    const [sending, setSending] = useState(false);
     const content = text.trim();
 
-    const handleSubmit = (e: SubmitEvent<HTMLFormElement>) => {
+    const handleSubmit = async (e: SubmitEvent<HTMLFormElement>) => {
         e.preventDefault();
-        if (content && onSend(content)) setText('');
+        if (!content || sending) return;
+        setSending(true);
+        try {
+            if (await onSend(content)) setText('');
+        } finally {
+            setSending(false);
+        }
     };
 
     return (
@@ -28,7 +37,7 @@ export default function MessageComposer({disabled, onSend}: MessageComposerProps
                 value={text}
                 onChange={(e) => setText(e.target.value)}
             />
-            <button className="primary" type="submit" disabled={disabled || !content}>
+            <button className="primary" type="submit" disabled={disabled || sending || !content}>
                 Send
             </button>
         </form>

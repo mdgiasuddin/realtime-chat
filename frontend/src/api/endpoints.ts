@@ -86,7 +86,11 @@ export function createChatApi(authed: AuthedRequest) {
 
         /** 404 if the user has no key yet. */
         getPublicKey: (username: string) =>
-            authed<PublicKeyResponse>(`/api/users/${encodeURIComponent(username)}/public-key`)
+            authed<PublicKeyResponse>(`/api/users/${encodeURIComponent(username)}/public-key`),
+
+        /** Users without a key are left out of the result. */
+        getPublicKeys: (usernames: string[]) =>
+            authed<PublicKeyResponse[]>(`/api/users/public-keys?usernames=${usernames.map(encodeURIComponent).join(',')}`)
     };
 }
 
