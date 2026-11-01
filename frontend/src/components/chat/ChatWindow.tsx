@@ -1,8 +1,9 @@
-import {useEffect, useRef} from 'react';
+import {Fragment, useEffect, useRef} from 'react';
 import type {DisplayMessage} from '../../crypto/messageCipher';
 import type {Group} from '../../types/api';
 import {cx} from '../../utils/classNames';
 import type {ChatTarget} from '../../utils/conversation';
+import {formatDay, isSameDay} from '../../utils/format';
 import MessageBubble from './MessageBubble';
 import MessageComposer from './MessageComposer';
 
@@ -55,9 +56,16 @@ export default function ChatWindow({
             </div>
 
             <div className="messages">
-                {messages.map((m) => {
+                {messages.map((m, i) => {
                     const mine = m.sender === me;
-                    return <MessageBubble key={m.id} message={m} mine={mine} showSender={isGroup && !mine}/>;
+                    const previous = messages[i - 1];
+                    const newDay = !previous || !isSameDay(previous.sentAt, m.sentAt);
+                    return (
+                        <Fragment key={m.id}>
+                            {newDay && <div className="day-divider"><span>{formatDay(m.sentAt)}</span></div>}
+                            <MessageBubble message={m} mine={mine} showSender={isGroup && !mine}/>
+                        </Fragment>
+                    );
                 })}
                 <div ref={bottomRef}/>
             </div>

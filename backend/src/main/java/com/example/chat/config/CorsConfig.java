@@ -22,6 +22,8 @@ public class CorsConfig {
         configuration.setAllowedOrigins(Arrays.asList(origins));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        // lets the app send the refresh-token cookie to /api/auth when the API is on another origin
+        configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

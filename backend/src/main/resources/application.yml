@@ -25,6 +25,19 @@ app:
   jwt:
     private-key-path: certs/private_key.pem
     public-key-path: certs/public_key.pem
+    # Lifetime of the access token (JWT). The client refreshes it 2 minutes before it expires.
+    access-token-validity: 30m
+
+  auth:
+    refresh-token:
+      validity: 7d
+      # An already-rotated refresh token presented again within this window (two tabs racing, a lost response) gets
+      # a new token; later than that it's treated as stolen and the whole session is revoked.
+      reuse-grace: 10s
+      # Secure = sent over HTTPS only (browsers also treat http://localhost as secure).
+      cookie-secure: ${REFRESH_COOKIE_SECURE:true}
+      # Strict works when the app and the API are on the same site; use None (with cookie-secure) if they aren't.
+      cookie-same-site: ${REFRESH_COOKIE_SAME_SITE:Strict}
 
   cors:
     # Origins of the React app (comma-separated). Override in production: export CORS_ORIGINS=https://chat.example.com

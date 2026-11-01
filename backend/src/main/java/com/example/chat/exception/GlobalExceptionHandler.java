@@ -25,6 +25,11 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(UNAUTHORIZED).body(Map.of("error", "Invalid username or password"));
     }
 
+    @ExceptionHandler(UnauthorizedException.class)
+    public ResponseEntity<Map<String, String>> unauthorized(UnauthorizedException e) {
+        return ResponseEntity.status(UNAUTHORIZED).body(Map.of("error", e.getMessage()));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, String>> validation(MethodArgumentNotValidException e) {
         String msg = e.getBindingResult().getFieldErrors().stream()

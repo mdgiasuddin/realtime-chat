@@ -5,6 +5,7 @@ import io.jsonwebtoken.JwtParserBuilder;
 import io.jsonwebtoken.Jwts;
 import jakarta.annotation.Nonnull;
 import jakarta.annotation.PostConstruct;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -16,6 +17,7 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.Date;
 
@@ -27,6 +29,9 @@ public class JwtService {
     private String privateKeyPath;
     @Value("${app.jwt.public-key-path}")
     private String publicKeyPath;
+    @Getter
+    @Value("${app.jwt.access-token-validity}")
+    private Duration accessTokenValidity;
     private PrivateKey privateKey;
     private PublicKey publicKey;
 
@@ -101,7 +106,7 @@ public class JwtService {
 
     protected String buildToken(String username, Key signingKey) {
         final Date now = new Date();
-        final Date expiration = new Date(System.currentTimeMillis() + 86400000);
+        final Date expiration = new Date(now.getTime() + accessTokenValidity.toMillis());
 
         return Jwts.builder()
                 .subject(username)

@@ -14,7 +14,8 @@ const Destinations = {
 } as const;
 
 interface ChatSocketOptions {
-    token: string;
+    /** Current access token (refreshed if about to expire); read on every (re)connect. */
+    getToken: () => Promise<string | null>;
     /** Called for every message delivered to (or echoed back to) the current user. */
     onMessage: (message: ChatMessage) => void;
     /** Called when a group I'm (or was) in is created or its membership changes. */
@@ -31,12 +32,22 @@ interface ChatSocket {
     send: (target: ChatTarget, content: string) => boolean;
 }
 
-/** Opens a STOMP-over-WebSocket connection authenticated with the JWT. */
-export function useChatSocket({token, onMessage, onGroupEvent, onReconnect, onError}: ChatSocketOptions): ChatSocket {
+/**
+ * Opens a STOMP-over-WebSocket connection authenticated with the JWT. The server checks the token on CONNECT only,
+ * so an open connection outlives the token; refreshing it doesn't reconnect.
+ */
+export function useChatSocket({
+                                  getToken,
+                                  onMessage,
+                                  onGroupEvent,
+                                  onReconnect,
+                                  onError
+                              }: ChatSocketOptions): ChatSocket {
     const [connected, setConnected] = useState(false);
     const clientRef = useRef<Client | null>(null);
 
     // Effect events always see the latest callbacks, so the socket isn't recreated on every render.
+    const fetchToken = useEffectEvent(getToken);
     const handleMessage = useEffectEvent(onMessage);
     const handleGroupEvent = useEffectEvent(onGroupEvent);
     const handleReconnect = useEffectEvent(onReconnect);
@@ -46,8 +57,12 @@ export function useChatSocket({token, onMessage, onGroupEvent, onReconnect, onEr
         let connectedBefore = false;
         const client = new Client({
             brokerURL: wsUrl(),
-            connectHeaders: {Authorization: `Bearer ${token}`},
             reconnectDelay: RECONNECT_DELAY_MS,
+            beforeConnect: async () => {
+                // Without a token the server rejects the CONNECT, and the client retries after the delay.
+                const token = await fetchToken().catch(() => null);
+                client.connectHeaders = token ? {Authorization: `Bearer ${token}`} : {};
+            },
             onConnect: () => {
                 setConnected(true);
                 client.subscribe(Destinations.messages, (frame) =>
@@ -70,7 +85,7 @@ export function useChatSocket({token, onMessage, onGroupEvent, onReconnect, onEr
             void client.deactivate();
             clientRef.current = null;
         };
-    }, [token]);
+    }, []);
 
     const send = useCallback((target: ChatTarget, content: string) => {
         const client = clientRef.current;

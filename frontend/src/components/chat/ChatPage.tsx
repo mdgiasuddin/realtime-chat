@@ -21,7 +21,7 @@ interface ChatPageProps {
 }
 
 export default function ChatPage({user, identity}: ChatPageProps) {
-    const {chatApi, logout} = useAuth();
+    const {chatApi, logout, getAccessToken} = useAuth();
     const cipher = useMemo(
         () => createMessageCipher(user.username, identity, chatApi),
         [user.username, identity, chatApi]);
@@ -36,7 +36,7 @@ export default function ChatPage({user, identity}: ChatPageProps) {
     } = useChat({me: user.username, chatApi, cipher, onNotify: showToast});
 
     const {connected, send} = useChatSocket({
-        token: user.token,
+        getToken: getAccessToken,
         onMessage: receiveMessage,
         onGroupEvent: receiveGroupEvent,
         onReconnect: resync,

@@ -16,16 +16,25 @@ import type {
     UserSummary
 } from '../types/api';
 
-/** Public endpoints (no JWT needed). */
+/** Public endpoints (no JWT needed). The refresh token travels in an HttpOnly cookie the browser handles. */
 export const authApi = {
+    /** Also sets the refresh-token cookie, ending whatever session this browser had. */
     login: (credentials: LoginRequest) =>
         request<AuthResponse>('/api/auth/login', {method: 'POST', body: credentials}),
 
     register: (data: RegisterRequest) =>
-        request<void>('/api/auth/register', {method: 'POST', body: data})
+        request<void>('/api/auth/register', {method: 'POST', body: data}),
+
+    /** New access token for the refresh-token cookie (which is rotated); 401 once that session is over. */
+    refresh: () =>
+        request<AuthResponse>('/api/auth/refresh', {method: 'POST'}),
+
+    /** Revokes the refresh token and clears its cookie. */
+    logout: () =>
+        request<void>('/api/auth/logout', {method: 'POST'})
 };
 
-export type AuthedRequestOptions = Omit<RequestOptions, 'token' | 'onUnauthorized'>;
+export type AuthedRequestOptions = Omit<RequestOptions, 'token'>;
 
 /** A `request` with the current user's JWT already bound to it. */
 export type AuthedRequest = <T>(path: string, options?: AuthedRequestOptions) => Promise<T>;

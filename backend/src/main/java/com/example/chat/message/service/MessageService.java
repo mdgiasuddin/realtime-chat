@@ -1,6 +1,6 @@
 package com.example.chat.message.service;
 
-import com.example.chat.group.entity.ChatGroup;
+import com.example.chat.conversation.service.ConversationService;
 import com.example.chat.group.service.GroupService;
 import com.example.chat.message.dto.ChatMessageDto;
 import com.example.chat.message.dto.ConversationDto;
@@ -13,13 +13,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 import static java.util.Locale.ROOT;
 
@@ -30,9 +24,11 @@ public class MessageService {
     private final ChatMessageRepository chatMessageRepository;
     private final UserRepository userRepository;
     private final GroupService groupService;
+    private final ConversationService conversationService;
 
     /**
-     * Saves a direct or group message, depending on which target the request carries.
+     * Saves a direct or group message, depending on which target the request carries. The first direct message
+     * between two users creates their conversation.
      */
     @Transactional
     public ChatMessageDto save(String sender, SendMessageRequest request) {
@@ -43,13 +39,17 @@ public class MessageService {
         ChatMessage message = new ChatMessage();
         message.setSender(sender);
         if (direct) {
-            message.setReceiver(validRecipient(sender, request.to()));
+            String receiver = validRecipient(sender, request.to());
+            message.setReceiver(receiver);
+            message.setConversationId(conversationService.findOrCreateDirect(sender, receiver).getId());
         } else {
             groupService.requireMember(request.groupId(), sender);
-            message.setGroupId(request.groupId());
+            message.setConversationId(request.groupId());
         }
         message.setContent(request.content().trim());
-        return new ChatMessageDto(chatMessageRepository.save(message));
+        ChatMessage saved = chatMessageRepository.save(message);
+        conversationService.recordLastMessage(saved);
+        return new ChatMessageDto(saved);
     }
 
     private String validRecipient(String sender, String to) {
@@ -64,13 +64,13 @@ public class MessageService {
     }
 
     /**
-     * Newest-first page of the conversation between two users.
+     * Newest-first page of the conversation between two users (empty if they never wrote to each other).
      */
     @Transactional(readOnly = true)
     public List<ChatMessageDto> history(String me, String other, int page, int size) {
-        return chatMessageRepository.findConversation(me, other.toLowerCase(ROOT), pageRequest(page, size))
-                .map(ChatMessageDto::new)
-                .getContent();
+        return conversationService.findDirect(me, other.trim().toLowerCase(ROOT))
+                .map(conversation -> page(conversation.getId(), page, size))
+                .orElse(List.of());
     }
 
     /**
@@ -79,38 +79,23 @@ public class MessageService {
     @Transactional(readOnly = true)
     public List<ChatMessageDto> groupHistory(String me, Long groupId, int page, int size) {
         groupService.requireMember(groupId, me);
-        return chatMessageRepository.findGroupHistory(groupId, pageRequest(page, size))
-                .map(ChatMessageDto::new)
-                .getContent();
+        return page(groupId, page, size);
     }
 
     /**
-     * Distinct chat partners and my groups, most recent activity first.
+     * My direct chats and groups, most recent activity first.
      */
     @Transactional(readOnly = true)
     public List<ConversationDto> conversations(String me) {
-        List<ChatMessage> recent = chatMessageRepository.findRecentForUser(me, PageRequest.of(0, 500));
-        Map<String, ConversationDto> byPartner = new LinkedHashMap<>();
-        for (ChatMessage message : recent) {
-            String other = message.getSender().equals(me) ? message.getReceiver() : message.getSender();
-            byPartner.putIfAbsent(other, ConversationDto.direct(other, message));
-        }
-        List<ConversationDto> result = new ArrayList<>(byPartner.values());
-
-        List<ChatGroup> groups = groupService.groupsOf(me);
-        if (!groups.isEmpty()) {
-            Map<Long, ChatMessage> latest = chatMessageRepository
-                    .findLatestInGroups(groups.stream().map(ChatGroup::getId).toList()).stream()
-                    .collect(Collectors.toMap(ChatMessage::getGroupId, Function.identity()));
-            for (ChatGroup group : groups) {
-                result.add(ConversationDto.group(group, latest.get(group.getId())));
-            }
-            result.sort(Comparator.comparing(ConversationDto::lastSentAt).reversed());
-        }
-        return result;
+        return conversationService.conversationsOf(me).stream()
+                .map(row -> ConversationDto.of(row.conversation(), row.lastMessage(), me))
+                .toList();
     }
 
-    private static PageRequest pageRequest(int page, int size) {
-        return PageRequest.of(Math.max(0, page), Math.clamp(size, 1, 100));
+    private List<ChatMessageDto> page(Long conversationId, int page, int size) {
+        PageRequest pageRequest = PageRequest.of(Math.max(0, page), Math.clamp(size, 1, 100));
+        return chatMessageRepository.findHistory(conversationId, pageRequest).stream()
+                .map(ChatMessageDto::new)
+                .toList();
     }
 }

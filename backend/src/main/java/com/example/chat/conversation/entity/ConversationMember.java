@@ -1,4 +1,4 @@
-package com.example.chat.group.entity;
+package com.example.chat.conversation.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -11,19 +11,19 @@ import lombok.Setter;
 
 import java.time.Instant;
 
-import static com.example.chat.group.entity.GroupRole.ADMIN;
-import static com.example.chat.group.entity.GroupRole.MEMBER;
+import static com.example.chat.conversation.entity.MemberRole.ADMIN;
+import static com.example.chat.conversation.entity.MemberRole.MEMBER;
 import static jakarta.persistence.EnumType.STRING;
 
 @Entity
-@IdClass(GroupMemberId.class)
+@IdClass(ConversationMemberId.class)
 @Getter
 @Setter
 @NoArgsConstructor
-public class GroupMember {
+public class ConversationMember {
 
     @Id
-    private Long groupId;
+    private Long conversationId;
 
     @Id
     @Column(length = 50)
@@ -31,13 +31,13 @@ public class GroupMember {
 
     @Enumerated(STRING)
     @Column(nullable = false, length = 10)
-    private GroupRole role = MEMBER;
+    private MemberRole role = MEMBER;
 
     @Column(nullable = false)
     private Instant joinedAt = Instant.now();
 
-    public GroupMember(Long groupId, String username, GroupRole role) {
-        this.groupId = groupId;
+    public ConversationMember(Long conversationId, String username, MemberRole role) {
+        this.conversationId = conversationId;
         this.username = username;
         this.role = role;
     }

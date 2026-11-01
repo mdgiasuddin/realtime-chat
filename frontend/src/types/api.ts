@@ -17,10 +17,14 @@ export interface RegisterRequest {
     bio: string | null;
 }
 
+/** From login and refresh; the refresh token itself is an HttpOnly cookie. */
 export interface AuthResponse {
+    /** Access token (JWT). */
     token: string;
     username: string;
     name: string;
+    /** Seconds until `token` expires. */
+    expiresIn: number;
 }
 
 export interface UserSummary {

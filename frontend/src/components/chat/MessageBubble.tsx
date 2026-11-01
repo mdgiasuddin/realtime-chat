@@ -1,6 +1,6 @@
 import type {DisplayMessage} from '../../crypto/messageCipher';
 import {cx} from '../../utils/classNames';
-import {formatTime} from '../../utils/format';
+import {formatDateTime, formatTime} from '../../utils/format';
 
 interface MessageBubbleProps {
     message: DisplayMessage;
@@ -14,7 +14,7 @@ export default function MessageBubble({message, mine, showSender = false}: Messa
         <div className={`bubble ${mine ? 'mine' : 'theirs'}`}>
             {showSender && <b className="sender">@{message.sender}</b>}
             <div className={cx(message.security === 'unreadable' && 'unreadable')}>{message.content}</div>
-            <time dateTime={message.sentAt}>
+            <time dateTime={message.sentAt} title={formatDateTime(message.sentAt)}>
                 {message.security === 'unencrypted' &&
                     <span title="Sent without end-to-end encryption">Not encrypted · </span>}
                 {formatTime(message.sentAt)}

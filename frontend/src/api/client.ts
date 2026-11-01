@@ -13,9 +13,8 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 export interface RequestOptions {
     method?: HttpMethod;
     body?: unknown;
-    /** JWT; when set, a 401 is treated as an expired session. */
+    /** Access token (JWT). */
     token?: string;
-    onUnauthorized?: () => void;
     signal?: AbortSignal;
 }
 
@@ -32,11 +31,11 @@ export class ApiError extends Error {
 
 /**
  * Small fetch wrapper: adds JSON headers + JWT, throws ApiError on non-2xx.
- * onUnauthorized is called on 401 for authenticated calls (e.g. expired token).
+ * Cookies are included, so the refresh-token cookie reaches /api/auth even when the API is on another origin.
  */
 export async function request<T>(
     path: string,
-    {method = 'GET', body, token, onUnauthorized, signal}: RequestOptions = {}
+    {method = 'GET', body, token, signal}: RequestOptions = {}
 ): Promise<T> {
     const headers: Record<string, string> = {'Content-Type': 'application/json'};
     if (token) headers.Authorization = `Bearer ${token}`;
@@ -45,13 +44,13 @@ export async function request<T>(
         method,
         headers,
         signal,
+        credentials: 'include',
         body: body !== undefined ? JSON.stringify(body) : undefined
     });
 
     const data: unknown = await res.json().catch(() => null);
 
     if (res.status === 401 && token) {
-        onUnauthorized?.();
         throw new ApiError('Session expired, please log in again', res.status);
     }
     if (!res.ok) {

@@ -1,16 +1,17 @@
 package com.example.chat.group.service;
 
+import com.example.chat.conversation.entity.Conversation;
+import com.example.chat.conversation.entity.ConversationMember;
+import com.example.chat.conversation.entity.ConversationMemberId;
+import com.example.chat.conversation.repository.ConversationMemberRepository;
+import com.example.chat.conversation.repository.ConversationRepository;
 import com.example.chat.exception.ForbiddenException;
+import com.example.chat.exception.NotFoundException;
 import com.example.chat.group.dto.AddMembersRequest;
 import com.example.chat.group.dto.CreateGroupRequest;
 import com.example.chat.group.dto.GroupDto;
 import com.example.chat.group.dto.GroupEvent;
 import com.example.chat.group.dto.RenameGroupRequest;
-import com.example.chat.group.entity.ChatGroup;
-import com.example.chat.group.entity.GroupMember;
-import com.example.chat.group.entity.GroupMemberId;
-import com.example.chat.group.repository.ChatGroupRepository;
-import com.example.chat.group.repository.GroupMemberRepository;
 import com.example.chat.user.dto.UserSummary;
 import com.example.chat.user.entity.User;
 import com.example.chat.user.repository.UserRepository;
@@ -29,6 +30,9 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static com.example.chat.conversation.entity.ChatType.GROUP;
+import static com.example.chat.conversation.entity.MemberRole.ADMIN;
+import static com.example.chat.conversation.entity.MemberRole.MEMBER;
 import static com.example.chat.group.entity.GroupEventType.CREATED;
 import static com.example.chat.group.entity.GroupEventType.DELETED;
 import static com.example.chat.group.entity.GroupEventType.MEMBER_ADDED;
@@ -36,10 +40,12 @@ import static com.example.chat.group.entity.GroupEventType.MEMBER_LEFT;
 import static com.example.chat.group.entity.GroupEventType.MEMBER_REMOVED;
 import static com.example.chat.group.entity.GroupEventType.RENAMED;
 import static com.example.chat.group.entity.GroupEventType.ROLE_CHANGED;
-import static com.example.chat.group.entity.GroupRole.ADMIN;
-import static com.example.chat.group.entity.GroupRole.MEMBER;
 import static java.util.Locale.ROOT;
 
+/**
+ * Group conversations. Every operation checks membership first (-> 403, so non-members can't probe which ids
+ * exist), then that the conversation really is a group (-> 404 for one-to-one chats).
+ */
 @Service
 @RequiredArgsConstructor
 public class GroupService {
@@ -49,8 +55,8 @@ public class GroupService {
      */
     static final int MAX_MEMBERS = 100;
 
-    private final ChatGroupRepository groupRepository;
-    private final GroupMemberRepository memberRepository;
+    private final ConversationRepository conversationRepository;
+    private final ConversationMemberRepository memberRepository;
     private final UserRepository userRepository;
     private final SimpMessagingTemplate messagingTemplate;
 
@@ -70,12 +76,13 @@ public class GroupService {
         checkSize(usernames.size());
         requireUsersExist(usernames);
 
-        ChatGroup group = new ChatGroup();
+        Conversation group = new Conversation();
+        group.setChatType(GROUP);
         group.setName(request.name().trim());
         group.setCreatedBy(me);
-        group = groupRepository.save(group);
+        group = conversationRepository.save(group);
         for (String username : usernames) {
-            memberRepository.save(new GroupMember(group.getId(), username, username.equals(me) ? ADMIN : MEMBER));
+            memberRepository.save(new ConversationMember(group.getId(), username, username.equals(me) ? ADMIN : MEMBER));
         }
 
         GroupDto dto = toDto(group);
@@ -84,22 +91,22 @@ public class GroupService {
     }
 
     /**
-     * Any member can add others.
+     * Any member can add others. Only groups have members added; a one-to-one chat stays between its two users.
      */
     @Transactional
     public GroupDto addMembers(String me, Long groupId, AddMembersRequest request) {
-        requireMember(groupId, me);
-        ChatGroup group = groupRepository.findById(groupId).orElseThrow();
+        requireMembership(groupId, me);
+        Conversation group = loadGroup(groupId);
 
         Set<String> added = normalize(request.usernames());
-        added.removeIf(username -> memberRepository.existsByGroupIdAndUsername(groupId, username));
+        added.removeIf(username -> memberRepository.existsByConversationIdAndUsername(groupId, username));
         if (added.isEmpty()) {
             throw new IllegalArgumentException("Those users are already members");
         }
-        checkSize(memberRepository.countByGroupId(groupId) + added.size());
+        checkSize(memberRepository.countByConversationId(groupId) + added.size());
         requireUsersExist(added);
         for (String username : added) {
-            memberRepository.save(new GroupMember(groupId, username, MEMBER));
+            memberRepository.save(new ConversationMember(groupId, username, MEMBER));
         }
 
         GroupDto dto = toDto(group);
@@ -113,15 +120,15 @@ public class GroupService {
      */
     @Transactional
     public void leave(String me, Long groupId) {
-        GroupMember membership = requireMembership(groupId, me);
-        ChatGroup group = groupRepository.findById(groupId).orElseThrow();
+        ConversationMember membership = requireMembership(groupId, me);
+        Conversation group = loadGroup(groupId);
         memberRepository.delete(membership);
         memberRepository.flush();
 
-        List<GroupMember> remaining = memberRepository.findByGroupIdOrderByJoinedAtAsc(groupId);
+        List<ConversationMember> remaining = memberRepository.findByConversationIdOrderByJoinedAtAsc(groupId);
         if (remaining.isEmpty()) {
-            groupRepository.delete(group);
-        } else if (remaining.stream().noneMatch(GroupMember::isAdmin)) {
+            conversationRepository.delete(group);
+        } else if (remaining.stream().noneMatch(ConversationMember::isAdmin)) {
             remaining.getFirst().setRole(ADMIN);
         }
 
@@ -133,7 +140,7 @@ public class GroupService {
     @Transactional
     public GroupDto rename(String me, Long groupId, RenameGroupRequest request) {
         requireAdmin(groupId, me);
-        ChatGroup group = groupRepository.findById(groupId).orElseThrow();
+        Conversation group = loadGroup(groupId);
         group.setName(request.name().trim());
 
         GroupDto dto = toDto(group);
@@ -147,22 +154,22 @@ public class GroupService {
     @Transactional
     public void delete(String me, Long groupId) {
         requireAdmin(groupId, me);
-        ChatGroup group = groupRepository.findById(groupId).orElseThrow();
+        Conversation group = loadGroup(groupId);
         GroupDto dto = toDto(group);
-        groupRepository.delete(group); // members and messages go with it (ON DELETE CASCADE)
+        conversationRepository.delete(group); // members and messages go with it (ON DELETE CASCADE)
         publishAfterCommit(usernames(dto), new GroupEvent(DELETED, dto, me, null));
     }
 
     @Transactional
     public GroupDto removeMember(String me, Long groupId, String username) {
         requireAdmin(groupId, me);
+        Conversation group = loadGroup(groupId);
         String target = username.trim().toLowerCase(ROOT);
         if (target.equals(me)) {
             throw new IllegalArgumentException("Leave the group to remove yourself");
         }
-        GroupMember membership = memberRepository.findById(new GroupMemberId(groupId, target))
+        ConversationMember membership = memberRepository.findById(new ConversationMemberId(groupId, target))
                 .orElseThrow(() -> new IllegalArgumentException("Not a member: " + target));
-        ChatGroup group = groupRepository.findById(groupId).orElseThrow();
         memberRepository.delete(membership);
         memberRepository.flush();
 
@@ -178,48 +185,44 @@ public class GroupService {
     @Transactional
     public GroupDto setAdmin(String me, Long groupId, String username, boolean admin) {
         requireAdmin(groupId, me);
+        Conversation group = loadGroup(groupId);
         String target = username.trim().toLowerCase(ROOT);
-        GroupMember membership = memberRepository.findById(new GroupMemberId(groupId, target))
+        ConversationMember membership = memberRepository.findById(new ConversationMemberId(groupId, target))
                 .orElseThrow(() -> new IllegalArgumentException("Not a member: " + target));
-        if (membership.isAdmin() && !admin && memberRepository.countByGroupIdAndRole(groupId, ADMIN) == 1) {
+        if (membership.isAdmin() && !admin && memberRepository.countByConversationIdAndRole(groupId, ADMIN) == 1) {
             throw new IllegalArgumentException("A group needs at least one admin");
         }
         membership.setRole(admin ? ADMIN : MEMBER);
 
-        GroupDto dto = toDto(groupRepository.findById(groupId).orElseThrow());
+        GroupDto dto = toDto(group);
         publishAfterCommit(usernames(dto), new GroupEvent(ROLE_CHANGED, dto, me, target));
         return dto;
     }
 
     @Transactional(readOnly = true)
     public GroupDto get(String me, Long groupId) {
-        requireMember(groupId, me);
-        return toDto(groupRepository.findById(groupId).orElseThrow());
-    }
-
-    /**
-     * Groups I'm a member of, in no particular order.
-     */
-    @Transactional(readOnly = true)
-    public List<ChatGroup> groupsOf(String me) {
-        return groupRepository.findAllById(memberRepository.findGroupIdsByUsername(me));
+        requireMembership(groupId, me);
+        return toDto(loadGroup(groupId));
     }
 
     @Transactional(readOnly = true)
     public List<String> memberUsernames(Long groupId) {
-        return memberRepository.findByGroupIdOrderByJoinedAtAsc(groupId).stream()
-                .map(GroupMember::getUsername)
+        return memberRepository.findByConversationIdOrderByJoinedAtAsc(groupId).stream()
+                .map(ConversationMember::getUsername)
                 .toList();
     }
 
+    /**
+     * Single query; also rejects one-to-one conversations, so their id can't be used as a group id.
+     */
     public void requireMember(Long groupId, String username) {
-        if (!memberRepository.existsByGroupIdAndUsername(groupId, username)) {
+        if (!memberRepository.isMember(groupId, username, GROUP)) {
             throw new ForbiddenException("You are not a member of this group");
         }
     }
 
-    private GroupMember requireMembership(Long groupId, String username) {
-        return memberRepository.findById(new GroupMemberId(groupId, username))
+    private ConversationMember requireMembership(Long groupId, String username) {
+        return memberRepository.findById(new ConversationMemberId(groupId, username))
                 .orElseThrow(() -> new ForbiddenException("You are not a member of this group"));
     }
 
@@ -229,9 +232,17 @@ public class GroupService {
         }
     }
 
-    private GroupDto toDto(ChatGroup group) {
-        List<GroupMember> memberships = memberRepository.findByGroupIdOrderByJoinedAtAsc(group.getId());
-        Map<String, User> users = userRepository.findByUsernameIn(memberships.stream().map(GroupMember::getUsername).toList())
+    /**
+     * Call after a membership check: only members of a one-to-one chat get to learn it isn't a group.
+     */
+    private Conversation loadGroup(Long groupId) {
+        return conversationRepository.findByIdAndChatType(groupId, GROUP)
+                .orElseThrow(() -> new NotFoundException("Not a group conversation"));
+    }
+
+    private GroupDto toDto(Conversation group) {
+        List<ConversationMember> memberships = memberRepository.findByConversationIdOrderByJoinedAtAsc(group.getId());
+        Map<String, User> users = userRepository.findByUsernameIn(memberships.stream().map(ConversationMember::getUsername).toList())
                 .stream()
                 .collect(Collectors.toMap(User::getUsername, Function.identity()));
         List<UserSummary> members = memberships.stream()
@@ -239,8 +250,8 @@ public class GroupService {
                 .map(user -> new UserSummary(user.getId(), user.getName(), user.getUsername()))
                 .toList();
         List<String> admins = memberships.stream()
-                .filter(GroupMember::isAdmin)
-                .map(GroupMember::getUsername)
+                .filter(ConversationMember::isAdmin)
+                .map(ConversationMember::getUsername)
                 .toList();
         return new GroupDto(group.getId(), group.getName(), group.getCreatedBy(), group.getCreatedAt(), members, admins);
     }

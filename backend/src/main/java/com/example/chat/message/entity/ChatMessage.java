@@ -25,13 +25,15 @@ public class ChatMessage {
     @Column(nullable = false, length = 50)
     private String sender;      // username
 
+    @Column(nullable = false)
+    private Long conversationId;
+
     /**
-     * Exactly one of receiver / groupId is set.
+     * Set for one-to-one messages only (null in groups). Redundant with the conversation, but it's bound into the
+     * ciphertext as "u:<receiver>", so it has to stay as it was sent.
      */
     @Column(length = 50)
-    private String receiver;    // username, for direct messages
-
-    private Long groupId;       // for group messages
+    private String receiver;    // username
 
     /**
      * End-to-end encrypted envelope (JSON) the server cannot read.
