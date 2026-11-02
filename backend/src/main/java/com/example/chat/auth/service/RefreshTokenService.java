@@ -1,4 +1,4 @@
-package com.example.chat.auth;
+package com.example.chat.auth.service;
 
 import com.example.chat.auth.entity.RefreshToken;
 import com.example.chat.auth.repository.RefreshTokenRepository;

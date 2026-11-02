@@ -1,4 +1,4 @@
-package com.example.chat.auth;
+package com.example.chat.auth.service;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseCookie;

@@ -1,4 +1,4 @@
-package com.example.chat.auth;
+package com.example.chat.auth.service;
 
 import com.example.chat.auth.dto.AuthResponse;
 import com.example.chat.auth.dto.LoginRequest;

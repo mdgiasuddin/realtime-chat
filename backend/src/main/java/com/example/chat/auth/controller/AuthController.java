@@ -1,10 +1,10 @@
 package com.example.chat.auth.controller;
 
-import com.example.chat.auth.AuthService;
-import com.example.chat.auth.RefreshTokenCookie;
 import com.example.chat.auth.dto.AuthResponse;
 import com.example.chat.auth.dto.LoginRequest;
 import com.example.chat.auth.dto.RegisterRequest;
+import com.example.chat.auth.service.AuthService;
+import com.example.chat.auth.service.RefreshTokenCookie;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
